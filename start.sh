@@ -25,13 +25,19 @@ if [ -f "/opt/intel/oneapi/mkl/2026.0/env/vars.sh" ]; then
     source /opt/intel/oneapi/mkl/2026.0/env/vars.sh >/dev/null 2>&1
 fi
 
+# Kill any leftover processes from a previous run before binding
+echo "Cleaning up any previous server instances..."
+fuser -k 8000/tcp 2>/dev/null || true
+fuser -k 5173/tcp 2>/dev/null || true
+sleep 1
+
 # 1. Start backend server
 echo "Launching FastAPI Backend..."
 venv/bin/python backend/app.py &
 BACKEND_PID=$!
 
-# Wait a second for backend to boot
-sleep 2
+# Wait for backend to fully boot before starting frontend
+sleep 3
 
 # 2. Start frontend dev server
 echo "Launching React/Vite Frontend..."
