@@ -279,6 +279,8 @@ class AgentOrchestrator:
         """Load a model with Dynamic Memory Allocator protection and dynamic context sizing."""
         if required_ctx is None:
             required_ctx = self.context_length if self.context_length > 0 else 8192
+        # Floor: never load a model below 8192 ctx — avoids reload-on-expand segfaults on Intel XPU
+        required_ctx = max(8192, required_ctx)
 
         if model_key in self.loaded_models:
             model_obj = self.loaded_models[model_key]
@@ -664,8 +666,8 @@ class AgentOrchestrator:
         # ── Dynamic Context Sizing ───────────────────────────────────────
         est_tokens = len(enriched_prompt) // 4
         if self.context_length == 0:
-            router_ctx = min(64000, est_tokens + self.max_tokens)
-            ds_ctx = min(64000, est_tokens + self.max_tokens)
+            router_ctx = max(8192, min(64000, est_tokens + self.max_tokens))
+            ds_ctx = max(8192, min(64000, est_tokens + self.max_tokens))
             oc_ctx = 8192
         else:
             router_ctx = self.context_length
