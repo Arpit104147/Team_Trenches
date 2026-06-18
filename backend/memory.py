@@ -2,6 +2,7 @@ import os
 import sqlite3
 import json
 import numpy as np
+import uuid
 
 class Memory:
     def __init__(self, db_path="./forge_memory_db"):
@@ -182,7 +183,7 @@ class Memory:
         if self._is_duplicate(task):
             return None
 
-        mem_id = f"mem_{self.count()}"
+        mem_id = f"mem_{uuid.uuid4().hex}"
 
         # Extract compact knowledge instead of dumping raw code
         # 1. Libraries used
@@ -232,7 +233,7 @@ class Memory:
 
     def save_mistake(self, task, wrong_code, error_log, fixed_code, embed_fn=None):
         """Save a compact mistake-fix pattern (NOT full code) to prevent regression."""
-        mem_id = f"mistake_{self.count()}"
+        mem_id = f"mistake_{uuid.uuid4().hex}"
 
         # Extract only the error pattern and the fix insight, not full code dumps
         # 1. Error essence: first 300 chars of the error (usually the traceback line)

@@ -260,7 +260,7 @@ export default function App() {
 
   const handleStop = async () => {
     // Tell the backend to stop generation (models stay in RAM)
-    try { await fetch(`${serverUrl}/api/cancel`, { method: "POST" }); } catch {}
+    try { await fetch(`http://127.0.0.1:8000/api/cancel`, { method: "POST" }); } catch {}
     if (abortController) {
       abortController.abort();
       setIsGenerating(false);
@@ -270,7 +270,7 @@ export default function App() {
 
   const handleOffload = async () => {
     try {
-      await fetch(`${serverUrl}/api/offload`, { method: "POST" });
+      await fetch(`http://127.0.0.1:8000/api/offload`, { method: "POST" });
       alert("All models offloaded from VRAM!");
     } catch { alert("Failed to offload."); }
   };
@@ -300,9 +300,8 @@ export default function App() {
       // Show a cold-start hint — model loading takes 2-4 minutes on first run
       setCurrentLogs(["🧊 Cold start: loading AI models into GPU memory (2-4 min on first run, instant after)..."]);
 
-      const res = await fetch(`${serverUrl}/api/chat`, {
+      const res = await fetch(`http://127.0.0.1:8000/api/chat`, {
         method: "POST",
-        credentials: "include",
         headers: { 
           "Content-Type": "application/json",
           "Bypass-Tunnel-Reminder": "true"
@@ -622,7 +621,7 @@ export default function App() {
             <div className="modal-actions">
               <button onClick={() => setSettingsOpen(false)}>Close</button>
               <button className="primary-btn" onClick={() => {
-                fetch(`${serverUrl}/api/settings`, {
+                fetch(`http://127.0.0.1:8000/api/settings`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ context_length: contextLength, max_tokens: maxTokens, temperature, device_mode: deviceMode, gpu_layers: -1, enable_web_search: enableWebSearch })
