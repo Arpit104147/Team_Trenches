@@ -205,18 +205,7 @@ Then re-run `npm run dev`. Or just use `http://localhost:5174` — works the sam
 
 ---
 
-## 🧠 System Requirements
-
-| Component | Minimum | Recommended |
-|---|---|---|
-| **RAM** | 16 GB | 32 GB |
-| **GPU VRAM** | 8 GB (NVIDIA/AMD dGPU) | 12 GB+ |
-| **Storage** | 25 GB free | 40 GB free |
-| **OS** | Ubuntu 22.04 / Win 10 / macOS 13 | Ubuntu 24.04 / Win 11 / macOS 14 |
-| **Python** | 3.10 | 3.11 |
-| **Node.js** | 18 | 20 |
-
-> **Intel iGPU (Iris Xe / Arc):** Uses system RAM as VRAM. 32 GB recommended. Must set `SYCL_DEVICE_FILTER=level_zero` before starting the backend.
+> **System Requirements:** See [README.md](./README.md#-system-requirements) for the full hardware requirements table.
 
 ---
 

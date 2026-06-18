@@ -130,69 +130,131 @@ Running 7B+ models on iGPUs is notoriously unstable. These fixes are baked into 
 
 ---
 
-## 🚀 Quick Start
+## 🔑 Key Features In Detail
 
-### 1. Clone & Install
-```bash
-git clone https://github.com/Scorpio-4488/Team_Trenches.git
-cd Team_Trenches
+### 1 — Three-Way Intelligent Routing
+Every prompt is classified into one of three execution paths by the Phi-3.5 Router before any heavy model is loaded:
+- **`SIMPLE`** — Factual questions, definitions, greetings. Answered directly by the Router itself. No large model loaded.
+- **`CODING`** — Any task requiring writing, debugging, or executing code in any language. Routed to the full Actor-Critic pipeline.
+- **`REASONING`** — Math proofs, physics analysis, logic puzzles, deep explanations. Routed to the Playground-Verified pipeline.
 
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+A keyword-based fallback scanner ensures no prompt is misrouted even if the LLM produces an unexpected output.
 
-# Install frontend deps
-cd frontend && npm install && cd ..
-```
+---
 
-### 2. Install GPU Acceleration (pick your hardware)
+### 2 — Actor-Critic Coding Pipeline
+For coding tasks, two agents work as a check-and-balance pair:
+- **DeepSeek-R1 (Actor)** produces the initial logic plan using chain-of-thought reasoning
+- **VibeThinker (Critic)** reviews the plan, writes the code, and runs it
+- If code fails, VibeThinker attempts a **shallow fix** first
+- If shallow fix fails, a **deep escalation** rewrites the entire script
+- If deep escalation fails, a **Nuclear Reset** extracts lessons from all failures and starts over from scratch with a new plan
+- Up to **3 full reset cycles** are attempted before returning the best-effort output
 
-**Mac (Apple Silicon):**
-```bash
-pip install torch torchvision torchaudio
-CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir
-```
+---
 
-**NVIDIA GPU:**
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-export CMAKE_ARGS="-DGGML_CUDA=on"
-pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir
-```
+### 3 — Dual Sandbox Verification
+The pipeline has two distinct sandboxes that run at different stages:
+- **Reasoning Sandbox** — Runs before code is written. DeepSeek-R1 writes a Python verification script to check its own logic plan (using `sympy`, `scipy`, `z3`, `astropy`, `pint`). If the plan fails logical verification, VibeThinker steps in to correct it before any code is written.
+- **Execution Sandbox** — Runs the final generated code in a fully isolated subprocess with three layers of protection:
+  - Process isolation (crashes can't kill the server)
+  - Restricted `__import__` whitelist (no `os`, `subprocess`, `socket`)
+  - Linux resource caps (1 GB RAM, 120s CPU, 50 child processes)
+- Supports **Python, C, C++, Java, JavaScript, and Bash** — auto-detected from code signatures
 
-**Intel Iris Xe / Arc (Linux):**
-```bash
-pip install torch==2.8.0+xpu intel-extension-for-pytorch==2.8.10+xpu --extra-index-url https://download.pytorch.org/whl/xpu
-pip install llama-cpp-python
-```
+---
 
-> See [README_SETUP.md](./README_SETUP.md) for the complete hardware setup guide.
+### 4 — Interactive 3D Visualization Engine
+After every `CODING` or `REASONING` response, a **3D Gate Check** runs automatically:
+- The Router decides if the task involves mathematical graphing, physics equations, or data plots
+- If yes, **OpenCodeInterpreter** generates a complete Plotly 3D visualization script
+- The script is executed in the sandbox, and the resulting JSON is sent to the React frontend
+- The frontend renders it as a fully **interactive 3D chart** (zoom, rotate, hover) inside the chat
+- If the visualization script fails, the Reflexion loop auto-fixes it before returning the chart
 
-### 3. Download Models (~18 GB)
-```bash
-python backend/downloader.py
-```
+---
 
-### 4. Run
+### 5 — Dynamic Memory Allocator (DMA)
+A custom memory manager that makes running 5 LLMs on consumer hardware possible:
+- **Auto-calibrates** safety thresholds based on detected RAM (25% reserved for OS)
+- **LRU Eviction** — When memory is tight, the least recently used model is evicted first
+- **iGPU Unified Memory Guard** — Prevents glibc heap corruption on Intel Iris Xe by preventing simultaneous large allocations
+- **Lazy Loading** — Models are loaded only at the moment the pipeline needs them, never all at once
+- **Reads VRAM from three sources**: `torch.cuda` (NVIDIA), `torch.xpu` (Intel), and Linux sysfs (AMD/Intel without ROCm)
+- **XPU Fallback** — If a model crashes on XPU during generation, it automatically falls back to CPU for that prompt
 
-**Option A — One command (Linux):**
-```bash
-bash start.sh
-```
+---
 
-**Option B — Manual two terminals (all platforms):**
-```bash
-# Terminal 1 — Backend
-source venv/bin/activate
-python backend/app.py
+### 6 — Long-Term RAG Memory
+The system remembers what it has solved before and uses it to improve future responses:
+- **ChromaDB** vector database for semantic similarity search (primary)
+- **SQLite** with cosine similarity and keyword search as fallback
+- Stores **compact solution summaries** — not raw code dumps — to avoid context bloat
+- Stores **mistake-fix patterns** from the Reflexion loop to prevent regressing on similar tasks
+- Automatic **deduplication** — if a very similar task (>60% word overlap) is already stored, it skips saving
+- Memory can be viewed (count), cleared, and inspected via the UI sidebar and REST API
 
-# Terminal 2 — Frontend
-cd frontend && npm run dev
-```
+---
 
-> See [STARTUP.md](./STARTUP.md) for the full cross-platform startup guide and troubleshooting.
+### 7 — Web Search Integration
+Optionally enriches prompts with live web context before routing:
+- **Priority chain**: Google Custom Search API → SearXNG → DuckDuckGo library → DuckDuckGo HTML scraper
+- Fetches top 3 snippets and prepends them to the prompt as context
+- Falls back gracefully through the chain — if Google API key is missing, it uses SearXNG, then DDG
+- Toggle on/off from the UI Settings panel or via the `/api/settings` endpoint
 
-Open **`http://localhost:5173`** in your browser.
+---
+
+### 8 — Vision / Multimodal Input
+Upload any image alongside a prompt for multimodal analysis:
+- **Qwen2.5-VL 7B** parses the image and extracts all text, diagrams, and logic
+- The extracted content is prepended to the user's prompt and passed through the full pipeline
+- Works with circuit diagrams, handwritten equations, screenshots, charts, and documents
+
+---
+
+### 9 — Prompt Cruncher
+Prevents context overflow when very long documents or code are pasted:
+- Estimates token count from character length
+- If the prompt exceeds the model's context limit, it **summarizes the middle section** using the Router
+- Preserves the start and end of the prompt intact (where the most important context usually lives)
+- Safety net caps at 50,000 characters for extreme-length inputs
+
+---
+
+### 10 — Live Streaming Agent Timeline
+The React UI streams the pipeline status in real-time:
+- Each agent step shows a status badge: `info` / `warning` / `success` / `error`
+- Progress bar advances through the pipeline stages
+- Logs collapse into a clean accordion once the final response arrives
+- **Cancel button** stops generation mid-stream while keeping models loaded in memory for instant reuse
+- **Offload Memory** button unloads all models from RAM/VRAM on demand
+
+---
+
+## 📦 Setup & Installation
+
+See the dedicated guides:
+
+| Guide | What it covers |
+|---|---|
+| **[README_SETUP.md](./README_SETUP.md)** | System prerequisites, Python deps, GPU acceleration (Mac/NVIDIA/Intel) |
+| **[STARTUP.md](./STARTUP.md)** | Downloading models, starting the backend and frontend, troubleshooting |
+
+---
+
+## 🧠 System Requirements
+
+| Component | Minimum | Recommended |
+|---|---|---|
+| **RAM** | 16 GB | 32 GB |
+| **GPU VRAM** | 8 GB (NVIDIA/AMD dGPU) | 12 GB+ |
+| **Storage** | 25 GB free | 40 GB free |
+| **OS** | Ubuntu 22.04 / Win 10 / macOS 13 | Ubuntu 24.04 / Win 11 / macOS 14 |
+| **Python** | 3.10 | 3.11 |
+| **Node.js** | 18 | 20 |
+
+> **Intel iGPU (Iris Xe / Arc):** Uses system RAM as VRAM via the Level Zero API. 32 GB RAM strongly recommended. Always export `SYCL_DEVICE_FILTER=level_zero` before starting the backend.
 
 ---
 
