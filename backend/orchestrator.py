@@ -291,6 +291,8 @@ class AgentOrchestrator:
                     except Exception:
                         pass
                 del self.loaded_models[model_key]
+                if model_key in self.model_access_order:
+                    self.model_access_order.remove(model_key)
                 gc.collect()
                 import time
                 time.sleep(2)
@@ -426,6 +428,8 @@ class AgentOrchestrator:
 
     def _crunch_prompt(self, prompt, target_model, max_tokens_limit, status_callback=None):
         """Compresses a massive prompt safely using the fast Router model."""
+        # Guard: if ctx is smaller than generation headroom, don't try to compress
+        max_tokens_limit = max(512, max_tokens_limit)
         est_tokens = len(prompt) // 4
         if est_tokens <= max_tokens_limit:
             return prompt
@@ -651,8 +655,8 @@ class AgentOrchestrator:
         # ── Dynamic Context Sizing ───────────────────────────────────────
         est_tokens = len(enriched_prompt) // 4
         if self.context_length == 0:
-            router_ctx = min(64000, est_tokens + self.max_tokens)
-            ds_ctx = min(64000, est_tokens + self.max_tokens)
+            router_ctx = min(128000, est_tokens + self.max_tokens)
+            ds_ctx = min(128000, est_tokens + self.max_tokens)
             oc_ctx = 8192
         else:
             router_ctx = self.context_length
@@ -674,8 +678,8 @@ class AgentOrchestrator:
         if task_type == "SIMPLE":
             if status_callback:
                 status_callback("Answering directly...", "success", "router", 100)
-            safe = self._crunch_prompt(enriched_prompt, "router", router_ctx - 4096, status_callback)
-            return self._call_model(router_llm, safe, max_tokens=4096, temperature=0.6)
+            safe = self._crunch_prompt(enriched_prompt, "router", router_ctx - self.max_tokens, status_callback)
+            return self._call_model(router_llm, safe, max_tokens=self.max_tokens, temperature=0.6)
 
         # ══════════════════════════════════════════════════════════════════
         # PATH B: CODING — Actor-Critic with Dual Sandbox
