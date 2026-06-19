@@ -68,7 +68,7 @@ const ArtifactSandbox = ({ htmlCode }) => {
       if (!injectedHtml.includes("window.onerror")) {
         const injection = `
           <style>
-            body { background-color: #0d0d0d !important; color: #e0e0e0 !important; margin: 0; padding: 0; font-family: monospace; }
+            html, body { background-color: #0d0d0d !important; color: #e0e0e0 !important; margin: 0; padding: 0; font-family: monospace; height: 100%; overflow: hidden; }
             #chart, .js-plotly-plot { background-color: transparent !important; }
             .bg { fill: transparent !important; }
             .error-box { margin: 20px; border: 1px solid #ff4444; padding: 15px; background: #2a0000; border-radius: 5px; color: #ff8888; }
