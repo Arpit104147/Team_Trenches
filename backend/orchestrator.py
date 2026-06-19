@@ -674,8 +674,8 @@ class AgentOrchestrator:
             "6. Set layout paper_bgcolor to '#0d0d0d', plot_bgcolor to '#0d0d0d', and font: {color: '#e0e0e0'}\n"
             "7. Make it responsive with {responsive: true}\n"
             "8. Always use a colorscale (e.g., 'Viridis' or 'Plasma') for surface/scatter plots so they are visible.\n"
-            "8. Do NOT use any external frameworks or libraries besides Plotly.js\n"
-            "9. Include ALL math/data generation directly in JavaScript\n\n"
+            "9. Do NOT use any external frameworks or libraries besides Plotly.js\n"
+            "10. Include ALL math/data generation directly in JavaScript\n\n"
             "Output the COMPLETE HTML page inside ```html``` blocks.\n\n"
             f"Topic: {compiled_plan[:3000]}"
         )
