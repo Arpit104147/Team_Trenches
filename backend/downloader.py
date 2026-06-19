@@ -85,7 +85,10 @@ def get_model_path(model_key):
         
     # Target directory under models/<subcategory>/<model_key>/
     target_dir = os.path.join(MODELS_DIR, subfolder, model_key)
-    os.makedirs(target_dir, exist_ok=True)
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError:
+        pass # Handle read-only file systems (like mounted Kaggle Datasets)
     
     local_path = os.path.join(target_dir, definition["filename"])
     return local_path
