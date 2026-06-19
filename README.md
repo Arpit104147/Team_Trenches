@@ -172,7 +172,7 @@ For coding tasks, two agents work as a check-and-balance pair:
 
 ### 3 — Dual Sandbox Verification
 The pipeline has two distinct sandboxes that run at different stages:
-- **Reasoning Sandbox** — Runs before code is written. DeepSeek-R1 writes a Python verification script to check its own logic plan (using `sympy`, `scipy`, `z3`, `astropy`, `pint`). If the plan fails logical verification, VibeThinker steps in to correct it before any code is written.
+- **Reasoning Sandbox** — Runs before code is written. DeepSeek-R1 writes a Python verification script to check its own logic plan. It has access to advanced math and science tools (like `sympy`, `scipy` ODE solvers for metabolic/enzyme kinetics, `Bio` (Biopython) for genomics/sequence verification, `rdkit` for cheminformatics/bond properties, `z3` theorem prover, `astropy`, and `pint`). If the plan fails logical verification, VibeThinker steps in to correct it before any code is written.
 - **Execution Sandbox** — Runs the final generated code in a fully isolated subprocess with three layers of protection:
   - Process isolation (crashes can't kill the server)
   - Restricted `__import__` whitelist (no `os`, `subprocess`, `socket`)
@@ -183,11 +183,14 @@ The pipeline has two distinct sandboxes that run at different stages:
 
 ### 4 — Claude-Style UI Artifacts & 3D Visualization
 After every `CODING` or `REASONING` response, a **3D Gate Check** runs automatically:
-- The Router decides if the task involves mathematical graphing, physics equations, or data plots
-- If yes, **OpenCodeInterpreter** generates a complete, self-contained **HTML/JS Artifact** using Plotly.js
-- The artifact is sent to the React frontend, which renders it inside a **secure, isolated iframe sandbox** — exactly like Anthropic's Claude Artifacts
-- The UI features a premium glassmorphic artifact window with expand-to-fullscreen and open-in-new-tab capabilities
-- **Dual-Mode Fallback:** If the AI hallucinates invalid HTML, the backend automatically falls back to generating a Python Plotly script, executing it in the backend Sandbox, and streaming the raw JSON to the frontend
+- The Router decides if the task involves mathematical graphing, physics equations, data plots, or biological/molecular 3D structures.
+- If yes, **OpenCodeInterpreter** generates a complete, self-contained **HTML/JS Artifact** using Three.js or Plotly.js:
+  - **Astrophysics/Physics:** Renders orbits, barycenter center-of-mass markers, and dynamic gravity/speed vector indicators.
+  - **Genetics/Bio/Chemistry:** Renders parametric DNA double-helices (`THREE.CatmullRomCurve3`), active transport membrane channels, lipid bilayers, and molecular compounds.
+  - **Controls:** Includes glassmorphic sliders to interactively tweak physical/organic settings (e.g. mass ratio, speed, pH levels, ATP concentration) in real-time.
+- The artifact is sent to the React frontend, which renders it inside a **secure, isolated iframe sandbox** — exactly like Anthropic's Claude Artifacts.
+- The UI features a premium glassmorphic artifact window with expand-to-fullscreen and open-in-new-tab capabilities.
+- **Dual-Mode Fallback:** If the AI HTML generation fails validation, it falls back to a Python Plotly executor, running in the backend Sandbox and sending the clean JSON dataset to the frontend.
 
 ---
 

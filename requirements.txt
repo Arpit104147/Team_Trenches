@@ -17,3 +17,5 @@ pint>=0.23
 z3-solver>=4.12.0
 networkx>=3.2
 astropy>=6.0
+biopython>=1.83
+rdkit>=2023.9.5
