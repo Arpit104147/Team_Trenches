@@ -656,56 +656,12 @@ class AgentOrchestrator:
         if "YES" not in str(is_3d).upper():
             return ""
 
-        # ── Strategy 1: Python Plotly (backend sandbox verified) ──────────
-        if status_callback:
-            status_callback("Generating Interactive 3D Chart...", "info", "opencode", 95)
-        viz_prompt = (
-            "You are a Python data visualization expert. "
-            "Write ONLY a complete Python script using plotly for an interactive 3D visualization.\n"
-            "RULES:\n"
-            "1. Import plotly.graph_objects as go and numpy as np ONLY\n"
-            "2. Create a 3D scatter, surface, or line plot\n"
-            "3. Use fig.update_layout(template='plotly_dark', margin=dict(l=0,r=0,t=40,b=0))\n"
-            "4. Do NOT use fig.update_scenes(). Do NOT use go.FigureControls(). They do NOT exist.\n"
-            "5. Do NOT set background colors manually\n"
-            "6. Do NOT add annotations, updatemenus, or buttons\n"
-            "7. Do NOT import plotly.subplots, plotly.io, or any other plotly module\n"
-            "8. Last line MUST be: print(fig.to_json())\n"
-            "9. Do NOT call fig.show() or save to file\n\n"
-            "Output ONLY code in ```python``` blocks.\n\n"
-            f"Topic: {compiled_plan[:3000]}"
-        )
         coder_llm = self._get_model("opencode", required_ctx=oc_ctx)
-        viz_code = self._call_model(coder_llm, viz_prompt, max_tokens=gen_tokens, temperature=gen_temp)
-        viz_extract = Sandbox.extract_code(viz_code)
 
+        # ── Strategy 1: HTML/JS Artifact (frontend iframe sandbox) ────────
+        # Generate a self-contained HTML page with Plotly.js CDN that the frontend can render in an iframe.
         if status_callback:
-            status_callback("Rendering 3D Visualization...", "info", "opencode", 97)
-        viz_success, viz_output = self.sandbox.execute(viz_extract)
-
-        # Reflexion self-fix for 3D (Python)
-        if not viz_success:
-            if status_callback:
-                status_callback("Fixing 3D syntax error...", "warning", "opencode", 98)
-            fix_p = (
-                f"This Plotly code failed:\n{viz_extract}\n\nError:\n{viz_output}\n\n"
-                f"Fix it. REMEMBER: Do NOT use update_scenes(), FigureControls, or plotly.subplots. "
-                f"Use ONLY go.Figure(), go.Surface/Scatter3d, and fig.update_layout(). "
-                f"Output ONLY the corrected script in ```python``` blocks. End with print(fig.to_json())."
-            )
-            viz_fixed = self._call_model(coder_llm, fix_p, max_tokens=gen_tokens, temperature=gen_temp)
-            viz_extract = Sandbox.extract_code(viz_fixed)
-            viz_success, viz_output = self.sandbox.execute(viz_extract)
-            viz_code = viz_fixed
-
-        if viz_success and viz_output and viz_output.strip().startswith("{"):
-            return f"\n\n### 3D Interactive Visualization\n<!--PLOTLY_JSON-->\n{viz_output.strip()}\n<!--/PLOTLY_JSON-->"
-
-        # ── Strategy 2: HTML/JS Artifact (frontend iframe sandbox) ────────
-        # If Python Plotly failed twice, generate a self-contained HTML page
-        # with Plotly.js CDN that the frontend can render in an iframe.
-        if status_callback:
-            status_callback("Generating HTML Artifact (Frontend Sandbox)...", "info", "opencode", 99)
+            status_callback("Generating HTML Artifact (Frontend Sandbox)...", "info", "opencode", 95)
         html_prompt = (
             "You are a JavaScript visualization expert. "
             "Write a COMPLETE, SELF-CONTAINED HTML page that creates an interactive 3D visualization.\n"
@@ -728,6 +684,50 @@ class AgentOrchestrator:
         # Basic validation: must contain essential HTML elements
         if html_extract and "<html" in html_extract.lower() or "<script" in html_extract.lower():
             return f"\n\n### 3D Interactive Visualization (Live Artifact)\n<!--ARTIFACT_HTML-->\n{html_extract}\n<!--/ARTIFACT_HTML-->"
+
+        # ── Strategy 2: Python Plotly (backend sandbox verified fallback) ──────────
+        if status_callback:
+            status_callback("HTML Failed. Falling back to Python Plotly...", "warning", "opencode", 97)
+        viz_prompt = (
+            "You are a Python data visualization expert. "
+            "Write ONLY a complete Python script using plotly for an interactive 3D visualization.\n"
+            "RULES:\n"
+            "1. Import plotly.graph_objects as go and numpy as np ONLY\n"
+            "2. Create a 3D scatter, surface, or line plot\n"
+            "3. Use fig.update_layout(template='plotly_dark', margin=dict(l=0,r=0,t=40,b=0))\n"
+            "4. Do NOT use fig.update_scenes(). Do NOT use go.FigureControls(). They do NOT exist.\n"
+            "5. Do NOT set background colors manually\n"
+            "6. Do NOT add annotations, updatemenus, or buttons\n"
+            "7. Do NOT import plotly.subplots, plotly.io, or any other plotly module\n"
+            "8. Last line MUST be: print(fig.to_json())\n"
+            "9. Do NOT call fig.show() or save to file\n\n"
+            "Output ONLY code in ```python``` blocks.\n\n"
+            f"Topic: {compiled_plan[:3000]}"
+        )
+        viz_code = self._call_model(coder_llm, viz_prompt, max_tokens=gen_tokens, temperature=gen_temp)
+        viz_extract = Sandbox.extract_code(viz_code)
+
+        if status_callback:
+            status_callback("Rendering 3D Visualization...", "info", "opencode", 98)
+        viz_success, viz_output = self.sandbox.execute(viz_extract)
+
+        # Reflexion self-fix for 3D (Python)
+        if not viz_success:
+            if status_callback:
+                status_callback("Fixing 3D syntax error...", "warning", "opencode", 99)
+            fix_p = (
+                f"This Plotly code failed:\n{viz_extract}\n\nError:\n{viz_output}\n\n"
+                f"Fix it. REMEMBER: Do NOT use update_scenes(), FigureControls, or plotly.subplots. "
+                f"Use ONLY go.Figure(), go.Surface/Scatter3d, and fig.update_layout(). "
+                f"Output ONLY the corrected script in ```python``` blocks. End with print(fig.to_json())."
+            )
+            viz_fixed = self._call_model(coder_llm, fix_p, max_tokens=gen_tokens, temperature=gen_temp)
+            viz_extract = Sandbox.extract_code(viz_fixed)
+            viz_success, viz_output = self.sandbox.execute(viz_extract)
+            viz_code = viz_fixed
+
+        if viz_success and viz_output and viz_output.strip().startswith("{"):
+            return f"\n\n### 3D Interactive Visualization\n<!--PLOTLY_JSON-->\n{viz_output.strip()}\n<!--/PLOTLY_JSON-->"
 
         # Final fallback: show the code with error
         error_msg = f"\n\n**Execution Error:**\n```text\n{viz_output}\n```" if not viz_success else ""
