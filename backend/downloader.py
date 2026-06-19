@@ -6,7 +6,7 @@ import time
 from huggingface_hub import hf_hub_download
 
 # Default local models directory
-MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
+MODELS_DIR = os.environ.get("MODELS_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models")))
 
 # Definitions of our local 2B-8B LLMs and multimodal vision/OCR assistants.
 # Categorized into 'text' and 'image_to_text' subfolders.
