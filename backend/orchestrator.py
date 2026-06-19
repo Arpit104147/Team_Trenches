@@ -744,12 +744,46 @@ class AgentOrchestrator:
         web_context = ""
         if self.enable_web_search:
             if status_callback:
-                status_callback("Gathering live facts via SearXNG...", "info", "router", 8)
+                status_callback("Optimizing Search Query...", "info", "router", 6)
             try:
-                results = self.web_search.search(prompt, max_results=3)
-                web_context = "\n".join([r.get('snippet', '') for r in results])
-            except Exception:
+                # 1. LLM Query Optimizer
+                router_llm = self._get_model("router", required_ctx=1024)
+                opt_prompt = (
+                    "Extract ONLY the 3-5 most important search keywords from the user request to use in Google. "
+                    "Remove all conversational filler. Output ONLY the raw keywords.\n\n"
+                    f"User Request: {prompt}"
+                )
+                search_query = self._call_model(router_llm, opt_prompt, max_tokens=30, temperature=0.1).strip()
+                search_query = search_query.replace('"', '').replace('`', '').strip()
+                if not search_query:
+                    search_query = prompt
+
+                if status_callback:
+                    status_callback(f"Searching: '{search_query}'...", "info", "router", 8)
+                
+                results = self.web_search.search(search_query, max_results=3)
+                
+                # 2. Deep Page Scraping (Scrape the #1 result)
+                if results and len(results) > 0:
+                    first_link = results[0].get('link', '')
+                    if first_link:
+                        if status_callback:
+                            status_callback(f"Deep scraping: {first_link[:40]}...", "info", "router", 12)
+                        
+                        full_page_text = self.web_search.scrape_url(first_link)
+                        
+                        if full_page_text:
+                            web_context = f"--- FULL PAGE CONTEXT ({first_link}) ---\n{full_page_text}\n\n"
+                        
+                    # Add snippets for the rest
+                    snippets = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in results])
+                    if snippets:
+                        web_context += f"--- OTHER SNIPPETS ---\n{snippets}"
+
+            except Exception as e:
+                print(f"Web search enrichment failed: {e}")
                 web_context = ""
+                
         enriched_prompt = (
             f"Web Context:\n{web_context}\n\nUser Query:\n{prompt}"
             if web_context else prompt

@@ -154,8 +154,31 @@ class WebSearch:
             print(f"HTML scraper fallback failed: {str(e)}")
             return []
 
+    def scrape_url(self, url):
+        """Deep scrape the full text of a webpage."""
+        try:
+            print(f"Deep scraping: {url}")
+            response = self._session.get(url, timeout=8.0)
+            soup = BeautifulSoup(response.content, "html.parser")
+            
+            # Remove junk elements
+            for el in soup(["script", "style", "nav", "footer", "header", "aside"]):
+                el.decompose()
+                
+            text = soup.get_text(separator="\n")
+            # Clean up excessive whitespace
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            cleaned_text = "\n".join(lines)
+            
+            # Cap at 15000 characters to prevent context overflow
+            return cleaned_text[:15000]
+        except Exception as e:
+            print(f"Failed to deep scrape {url}: {str(e)}")
+            return ""
+
 if __name__ == "__main__":
     # Test search
     ws = WebSearch()
     res = ws.search("Intel Core i5-1235u Xe graphics specification", 3)
     print(json.dumps(res, indent=2))
+
