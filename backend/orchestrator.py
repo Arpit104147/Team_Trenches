@@ -145,9 +145,9 @@ class AgentOrchestrator:
                 _free, total_vram = torch.cuda.mem_get_info(0)
                 total_vram_gb = total_vram / (1024 ** 3)
                 if total_vram_gb <= 16:
-                    self.max_auto_ctx = 4096
+                    self.max_auto_ctx = 8192  # Increased from 4096 to prevent token cutoff
                 elif total_vram_gb <= 24:
-                    self.max_auto_ctx = 6144
+                    self.max_auto_ctx = 8192  # Increased from 6144
                 print(f"📐 DMA: Auto-context ceiling = {self.max_auto_ctx} tokens (based on {total_vram_gb:.0f} GB VRAM)")
             except Exception:
                 pass
