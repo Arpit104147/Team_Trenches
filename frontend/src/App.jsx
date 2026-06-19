@@ -62,7 +62,19 @@ const ArtifactSandbox = ({ htmlCode }) => {
   useEffect(() => {
     if (!htmlCode) return;
     try {
-      const blob = new Blob([htmlCode], { type: "text/html" });
+      // Bulletproof dark mode injection
+      let injectedHtml = htmlCode;
+      if (!injectedHtml.includes("background-color")) {
+        injectedHtml = injectedHtml.replace("</head>", `
+          <style>
+            body { background-color: #0d0d0d !important; color: #e0e0e0 !important; margin: 0; padding: 0; }
+            #chart, .js-plotly-plot { background-color: transparent !important; }
+            .bg { fill: transparent !important; }
+          </style>
+        </head>`);
+      }
+      
+      const blob = new Blob([injectedHtml], { type: "text/html" });
       blobUrl.current = URL.createObjectURL(blob);
       setHasError(false);
     } catch (err) {
