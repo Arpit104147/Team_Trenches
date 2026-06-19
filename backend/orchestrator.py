@@ -674,7 +674,7 @@ class AgentOrchestrator:
             "6. Set layout paper_bgcolor to '#0d0d0d', plot_bgcolor to '#0d0d0d', and font: {color: '#e0e0e0'}\n"
             "7. Make it responsive with {responsive: true}\n"
             "8. Always use a colorscale (e.g., 'Viridis' or 'Plasma') for surface/scatter plots so they are visible.\n"
-            "9. Do NOT use any external frameworks or libraries besides Plotly.js\n"
+            "9. Do NOT use any external frameworks or libraries besides Plotly.js. However, if you must use Three.js for dynamic physics/orbital animations, make sure to load OrbitControls correctly, NEVER use non-existent APIs like ArcGeometry (use RingGeometry, TorusGeometry, or custom curves), and always define all animation variables (like clock/time/frameCount).\n"
             "10. Include ALL math/data generation directly in JavaScript\n\n"
             "Output the COMPLETE HTML page inside ```html``` blocks.\n\n"
             f"Topic: {compiled_plan[:3000]}"
