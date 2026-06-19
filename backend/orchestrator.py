@@ -640,6 +640,104 @@ class AgentOrchestrator:
         lessons = self._call_model(critic_llm, p, max_tokens=512, temperature=0.3)
         return self._strip_thinking(lessons)
 
+    def _verify_html_javascript(self, html_code):
+        """Extract JavaScript from HTML, inject mock environment, and run it in the Node.js sandbox to catch syntax/execution errors."""
+        # Find all script blocks in HTML
+        scripts = re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', html_code)
+        if not scripts:
+            return True, ""
+            
+        js_code = "\n".join(scripts)
+        if not js_code.strip():
+            return True, ""
+
+        # Prepend mocks for DOM, Window, THREE, and Plotly to Node.js context.
+        # This will bypass typical browser-only ReferenceErrors while letting actual syntax/API bugs throw errors.
+        mocks = """
+        // Mock DOM & Window
+        global.document = {
+            getElementById: () => ({ 
+                addEventListener: () => {},
+                appendChild: () => {},
+                style: {},
+                getContext: () => ({
+                    createShader: () => ({}),
+                    compileShader: () => ({}),
+                    createProgram: () => ({}),
+                    attachShader: () => ({}),
+                    linkProgram: () => ({}),
+                    getProgramParameter: () => true,
+                    useProgram: () => ({}),
+                    createBuffer: () => ({}),
+                    bindBuffer: () => ({}),
+                    bufferData: () => ({}),
+                    enableVertexAttribArray: () => ({}),
+                    vertexAttribPointer: () => ({}),
+                    drawArrays: () => ({}),
+                })
+            }),
+            createElement: () => ({ style: {}, getContext: () => ({}) }),
+            body: { appendChild: () => {}, style: {} },
+            addEventListener: () => {}
+        };
+        global.window = {
+            innerWidth: 1024,
+            innerHeight: 768,
+            addEventListener: () => {},
+            requestAnimationFrame: (cb) => {
+                // Run animation loop exactly ONCE to verify there are no runtime ReferenceErrors
+                if (!global.__ran_animation_loop) {
+                    global.__ran_animation_loop = true;
+                    try { cb(0); } catch(e) {}
+                }
+            },
+            document: global.document,
+            location: { href: "" }
+        };
+        global.navigator = { userAgent: "" };
+        
+        // Mock THREE.js to catch missing API constructors or undefined variables
+        const createProxy = (name) => {
+            return new Proxy(function() {}, {
+                construct(target, args) {
+                    return createProxy(name);
+                },
+                get(target, prop) {
+                    // Specific mock for ArcGeometry to fail verification
+                    if (prop === 'ArcGeometry') {
+                        return undefined; // Will throw TypeError
+                    }
+                    if (['Scene', 'PerspectiveCamera', 'WebGLRenderer', 'AmbientLight', 'PointLight', 'SphereGeometry', 'MeshBasicMaterial', 'Mesh', 'RingGeometry', 'TorusGeometry', 'BufferGeometry', 'OrbitControls', 'Vector3', 'Line', 'LineBasicMaterial', 'GridHelper'].includes(prop)) {
+                        return function() {
+                            this.position = { x: 0, y: 0, z: 0, set: () => {} };
+                            this.rotation = { x: 0, y: 0, z: 0 };
+                            this.scale = { x: 1, y: 1, z: 1 };
+                            this.add = () => {};
+                            this.domElement = {};
+                            this.render = () => {};
+                            this.setSize = () => {};
+                        };
+                    }
+                    return createProxy(`${name}.${prop}`);
+                }
+            });
+        };
+        global.THREE = createProxy('THREE');
+        global.Plotly = {
+            newPlot: () => {}
+        };
+        
+        // Safe console mock
+        global.console = {
+            log: () => {},
+            error: () => {},
+            warn: () => {}
+        };
+        """
+        full_test_code = mocks + "\n" + js_code
+        success, output = self.sandbox.execute(full_test_code, language='javascript')
+        return success, output
+
     def _check_3d_gate(self, prompt, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         """Check if the task needs 3D visualization and generate it if so."""
         if status_callback:
@@ -682,8 +780,39 @@ class AgentOrchestrator:
         html_code = self._call_model(coder_llm, html_prompt, max_tokens=gen_tokens, temperature=gen_temp)
         html_extract = Sandbox.extract_code(html_code)
 
-        # Basic validation: must contain essential HTML elements
-        if html_extract and "<html" in html_extract.lower() or "<script" in html_extract.lower():
+        # Validate initially
+        html_valid = False
+        html_error = ""
+        if html_extract and ("<html" in html_extract.lower() or "<script" in html_extract.lower()):
+            html_valid, html_error = self._verify_html_javascript(html_extract)
+
+        # Reflexion loop for Strategy 1: Max 2 self-fix attempts
+        for attempt in range(2):
+            if html_valid:
+                break
+            if status_callback:
+                status_callback(f"Fixing HTML JS execution error (Round {attempt+1})...", "warning", "opencode", 96)
+            
+            fix_p = (
+                f"Your previously generated HTML/JS code failed JavaScript execution verification.\n\n"
+                f"Failed Code:\n{html_extract}\n\n"
+                f"Error Message:\n{html_error}\n\n"
+                "Please fix it. Common guidelines:\n"
+                "1. If using Three.js, ensure you load OrbitControls correctly, NEVER use non-existent APIs like ArcGeometry (use RingGeometry or TorusGeometry instead), and define all animation variables (like clock/time/frameCount).\n"
+                "2. If using Plotly.js, ensure layout backgrounds are dark, colorscales are explicit, and target elements exist.\n"
+                "3. Ensure there are no JavaScript syntax errors or undefined variables.\n\n"
+                "Output ONLY the complete, corrected HTML page inside ```html``` blocks."
+            )
+            html_fixed = self._call_model(coder_llm, fix_p, max_tokens=gen_tokens, temperature=gen_temp)
+            fixed_extract = Sandbox.extract_code(html_fixed)
+            if fixed_extract:
+                html_extract = fixed_extract
+                html_valid, html_error = self._verify_html_javascript(html_extract)
+            else:
+                html_valid = False
+                html_error = "No code block found in response."
+
+        if html_valid and html_extract:
             return f"\n\n### 3D Interactive Visualization (Live Artifact)\n<!--ARTIFACT_HTML-->\n{html_extract}\n<!--/ARTIFACT_HTML-->"
 
         # ── Strategy 2: Python Plotly (backend sandbox verified fallback) ──────────
@@ -712,12 +841,19 @@ class AgentOrchestrator:
             status_callback("Rendering 3D Visualization...", "info", "opencode", 98)
         viz_success, viz_output = self.sandbox.execute(viz_extract)
 
-        # Reflexion self-fix for 3D (Python)
-        if not viz_success:
+        # Reflexion self-fix loop for Strategy 2: Max 2 self-fix attempts
+        for attempt in range(2):
+            if viz_success and viz_output and viz_output.strip().startswith("{"):
+                break
             if status_callback:
-                status_callback("Fixing 3D syntax error...", "warning", "opencode", 99)
+                status_callback(f"Fixing 3D syntax/runtime error (Round {attempt+1})...", "warning", "opencode", 99)
+            
+            error_details = viz_output
+            if viz_success and not viz_output.strip().startswith("{"):
+                error_details = "Code ran successfully but failed to print JSON. Make sure the last line is print(fig.to_json())"
+                
             fix_p = (
-                f"This Plotly code failed:\n{viz_extract}\n\nError:\n{viz_output}\n\n"
+                f"This Plotly code failed:\n{viz_extract}\n\nError/Output:\n{error_details}\n\n"
                 f"Fix it. REMEMBER: Do NOT use update_scenes(), FigureControls, or plotly.subplots. "
                 f"Use ONLY go.Figure(), go.Surface/Scatter3d, and fig.update_layout(). "
                 f"Output ONLY the corrected script in ```python``` blocks. End with print(fig.to_json())."
