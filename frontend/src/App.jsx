@@ -611,7 +611,11 @@ export default function App() {
               <label>Server URL</label>
               <input
                 type="text"
-                defaultValue={serverUrl}
+                value={serverUrl}
+                onChange={e => {
+                  let val = e.target.value;
+                  setServerUrl(val);
+                }}
                 onBlur={e => {
                   let val = e.target.value.trim();
                   if (val && !val.startsWith("http")) val = "http://" + val;
@@ -625,11 +629,23 @@ export default function App() {
             <div className="modal-actions">
               <button onClick={() => setSettingsOpen(false)}>Close</button>
               <button className="primary-btn" onClick={() => {
-                fetch(`${serverUrl}/api/settings`, {
+                // Sanitize and persist the URL first (always succeeds locally)
+                let finalUrl = serverUrl.trim();
+                if (finalUrl && !finalUrl.startsWith("http")) finalUrl = "http://" + finalUrl;
+                if (finalUrl.endsWith("/")) finalUrl = finalUrl.slice(0, -1);
+                finalUrl = finalUrl.replace("localhost", "127.0.0.1").replace("0.0.0.0", "127.0.0.1");
+                localStorage.setItem("server_url", finalUrl);
+                setServerUrl(finalUrl);
+
+                // Close the modal immediately — don't block the user
+                setSettingsOpen(false);
+
+                // Fire the backend POST silently in the background
+                fetch(`${finalUrl}/api/settings`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ context_length: contextLength, max_tokens: maxTokens, temperature, device_mode: deviceMode, gpu_layers: -1, enable_web_search: enableWebSearch })
-                }).then(() => setSettingsOpen(false)).catch(() => alert("Failed to save settings."));
+                }).catch(() => console.warn("Settings sync to backend deferred — will apply on next request."));
               }}>Save</button>
             </div>
           </div>

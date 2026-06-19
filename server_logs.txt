@@ -1,0 +1,23 @@
+[W618 20:42:25.042070010 OperatorEntry.cpp:218] Warning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: aten::geometric_(Tensor(a!) self, float p, *, Generator? generator=None) -> Tensor(a!)
+    registered at /pytorch/build/aten/src/ATen/RegisterSchema.cpp:6
+  dispatch key: XPU
+  previous kernel: registered at /pytorch/aten/src/ATen/VmapModeRegistrations.cpp:37
+       new kernel: registered at /build/intel-pytorch-extension/build/Release/csrc/gpu/csrc/gpu/xpu/ATen/RegisterXPU_0.cpp:172 (function operator())
+2026-06-18 20:42:28,815 - chromadb.telemetry.product.posthog - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-06-18 20:42:28,961 - chromadb.telemetry.product.posthog - ERROR - Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+2026-06-18 20:42:28,963 - chromadb.telemetry.product.posthog - ERROR - Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+INFO:     Started server process [26747]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+Memory Engine: Successfully initialized ChromaDB persistent vector database.
+🧠 DMA: Detected 30 GB RAM → Safety threshold = 7.6 GB (evict when free < 7.6 GB)
+INFO:     127.0.0.1:33960 - "POST /api/chat HTTP/1.1" 200 OK
+llama_context: n_ctx_seq (2304) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [26747]
+✅ Loaded GGUF model 'router' (Phi-3.5-mini-instruct-Q6_K.gguf)
