@@ -81,8 +81,8 @@ try:
     import resource
     # Max 1 GB RAM (enough for numpy/pandas heavy workloads)
     resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, 1024 * 1024 * 1024))
-    # Max 120 seconds of CPU time (enough for complex computation)
-    resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
+    # Max 15 seconds of CPU time to aggressively kill infinite loops
+    resource.setrlimit(resource.RLIMIT_CPU, (15, 15))
     # Max 50 child processes (allows multiprocessing but blocks fork bombs)
     resource.setrlimit(resource.RLIMIT_NPROC, (50, 50))
     # Max 100 MB file writes (allows data output but prevents disk flooding)

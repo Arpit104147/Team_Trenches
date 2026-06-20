@@ -495,10 +495,15 @@ class AgentOrchestrator:
         """Remove <think>...</think> blocks from DeepSeek R1 / VibeThinker output."""
         if not text:
             return text
-        cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-        # Also handle unclosed <think> tags (model sometimes forgets to close)
-        cleaned = re.sub(r'<think>.*', '', cleaned, flags=re.DOTALL)
-        cleaned = cleaned.strip()
+            
+        # Handle unclosed <think> tag gracefully without wiping code
+        if '<think>' in text and '</think>' not in text:
+            if '```' in text.split('<think>', 1)[1]:
+                text = text.replace('```', '</think>\n```', 1)
+            else:
+                return text.replace('<think>', '').strip()
+                
+        cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
         
         if cleaned:
             return cleaned
@@ -575,8 +580,9 @@ class AgentOrchestrator:
                 max_prompt_chars = 300
             if len(prompt) > max_prompt_chars:
                 # Keep beginning and end of prompt (most important parts)
-                half = max_prompt_chars // 2
-                prompt = prompt[:half] + "\n...[TRUNCATED FOR CONTEXT LIMIT]...\n" + prompt[-half:]
+                keep_start = int(max_prompt_chars * 0.2)
+                keep_end = int(max_prompt_chars * 0.8)
+                prompt = prompt[:keep_start] + "\n...[TRUNCATED FOR CONTEXT LIMIT]...\n" + prompt[-keep_end:]
                 est_prompt_tokens = len(prompt) // 3 + template_overhead
                 if system_prompt:
                     est_prompt_tokens += len(system_prompt) // 3
@@ -635,7 +641,7 @@ class AgentOrchestrator:
             "  Keywords: explain, prove, derive, analyze, compare, why, how does, in detail, theory\n\n"
             "IMPORTANT RULES:\n"
             "- If the query asks to EXPLAIN something AND write code → CODING\n"
-            "- If the query asks for detailed explanation with visualization → REASONING\n"
+            "- If the query asks for detailed explanation with visualization → CODING\n"
             "- If the query simply asks to 'fetch', 'get', 'search', or 'scrape' weather, news, or facts from the web without asking to write programming code → SIMPLE or REASONING, NOT CODING.\n"
             "- If unsure between SIMPLE and REASONING → choose REASONING\n"
             "- If unsure between CODING and REASONING → choose CODING\n\n"
@@ -647,7 +653,8 @@ class AgentOrchestrator:
         # Override classification if the intent is purely search/weather/news and doesn't ask to create code
         prompt_lower = prompt.lower()
         search_intents = ["fetch from web", "search the web", "search for", "google for", "latest news", "weather news", "current weather", "weather of"]
-        has_code_intent = any(kw in prompt_lower for kw in ["write code", "write a code", "javascript code", "python code", "c++ code", "java code", "html code", "css code", "write a script", "code for", "script to"])
+        code_intent_kws = ["write code", "write a code", "javascript code", "python code", "c++ code", "java code", "html code", "css code", "write a script", "code for", "script to", "simulate", "build", "implement"]
+        has_code_intent = any(kw in prompt_lower for kw in code_intent_kws)
         
         if any(intent in prompt_lower for intent in search_intents) and not has_code_intent:
             if "REASONING" in upper:
@@ -670,10 +677,12 @@ class AgentOrchestrator:
         theory_keywords = ["explain", "derive", "why", "concept", "theory", "theoretically", "describe", "prove"]
         wants_theory = any(kw in prompt_lower for kw in theory_keywords)
         
-        if any(kw in prompt_lower for kw in compute_keywords) and "CODING" not in upper and not wants_theory:
-            # If the prompt asks to calculate/simulate AND show results, it needs code
-            action_keywords = ["calculate", "compute", "simulate", "model", "solve", "render", "plot", "show", "verify computationally"]
-            if any(kw in prompt_lower for kw in action_keywords):
+        # Strict compute override: Bypass theory keywords if an action keyword is present
+        action_keywords = ["calculate", "compute", "simulate", "model", "solve", "render", "plot", "show", "verify computationally", "build"]
+        has_action = any(kw in prompt_lower for kw in action_keywords)
+        
+        if any(kw in prompt_lower for kw in compute_keywords) and "CODING" not in upper:
+            if not wants_theory or has_action:
                 return "CODING"
 
         # Strict keyword extraction from model response
@@ -714,7 +723,7 @@ class AgentOrchestrator:
             f"Write a Python script (max 50 lines) that {'tests this code logic' if purpose == 'logic' else 'verifies this reasoning'}.\n\n"
             "VERIFICATION RULES:\n"
             "1. Test the CORE claim/formula with concrete numerical values\n"
-            "2. Use relative tolerance (rtol=1e-3) for floating point comparisons, not exact equality\n"
+            "2. You MUST use math.isclose(a, b, rel_tol=1e-3) for ANY floating point comparisons. NEVER use == for floats.\n"
             "3. Check at least 2 different test cases or boundary conditions\n"
             "4. Check dimensional consistency (units make sense)\n"
             "5. Use assert statements with descriptive messages\n"
@@ -1171,7 +1180,10 @@ class AgentOrchestrator:
         # gen_tokens must leave room for the prompt inside the context window
         # Use at most half the context for generation, capped at 4096
         gen_tokens = min(ds_ctx // 2, 4096)
-        gen_temp = 0.1
+        
+        # Adaptive Temperature Scaling
+        logic_temp = 0.6  # High for creative logic problem solving
+        gen_temp = 0.1    # Low for strict code writing
 
         # ── Three-Way Classification ─────────────────────────────────────
         router_llm = self._get_model("router", required_ctx=router_ctx)
@@ -1255,7 +1267,13 @@ class AgentOrchestrator:
             "7. The script MUST run standalone with `python script.py` — no user input, no GUI blocking.\n"
             "8. Import ONLY what you use. Do not import unused libraries.\n"
             "9. Add a brief comment above each major section explaining what it does.\n"
-            "10. For conservation checks: compute and print the relative error (|E_final - E_initial|/|E_initial|)."
+            "10. For conservation checks: compute and print the relative error (|E_final - E_initial|/|E_initial|).\n\n"
+            "=== PLOTLY 3D CHEAT SHEET ===\n"
+            "import plotly.graph_objects as go\n"
+            "fig = go.Figure(data=[go.Scatter3d(x=X, y=Y, z=Z, mode='lines', line=dict(color='cyan', width=2))])\n"
+            "fig.update_layout(template='plotly_dark', margin=dict(l=0, r=0, b=0, t=40))\n"
+            "print(fig.to_json()) # ALWAYS print json for the UI to render\n"
+            "============================="
         )
 
         for reset in range(max_resets):
@@ -1272,7 +1290,7 @@ class AgentOrchestrator:
             max_plan_prompt_chars = (ds_ctx - gen_tokens - 200) * 3
             if len(plan_p) > max_plan_prompt_chars > 300:
                 plan_p = plan_p[:max_plan_prompt_chars]
-            ds_draft = self._strip_thinking(self._call_model(ds_llm, plan_p, gen_tokens, gen_temp, system_prompt=planner_sys))
+            ds_draft = self._strip_thinking(self._call_model(ds_llm, plan_p, gen_tokens, logic_temp, system_prompt=planner_sys))
 
             # ── Phase 2: Reasoning Sandbox — Verify Logic ────────────────
             if status_callback:
@@ -1287,7 +1305,7 @@ class AgentOrchestrator:
                     f"Logic plan FAILED verification.\nPlan:\n{ds_draft[:2000]}\n"
                     f"Error:\n{pg_out[:1000]}\nRewrite a corrected logic plan."
                 )
-                ds_draft = self._strip_thinking(self._call_model(vibe_llm, fix_p, gen_tokens, gen_temp, system_prompt=planner_sys))
+                ds_draft = self._strip_thinking(self._call_model(vibe_llm, fix_p, gen_tokens, logic_temp, system_prompt=planner_sys))
                 v2, _, _ = self._run_playground(vibe_llm, ds_draft, "logic")
                 if v2 and status_callback:
                     status_callback("VibeThinker corrected the logic!", "success", "vibethinker", 40)

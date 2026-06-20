@@ -47,6 +47,9 @@ orchestrator = AgentOrchestrator(cancel_event=generation_cancel)
 download_lock = threading.Lock()
 download_progress = {}
 
+# Global lock to prevent multi-user orchestrator state collisions
+chat_lock = threading.Lock()
+
 class ChatRequest(BaseModel):
     prompt: str
     mode: str  # reasoning, coding, writing, searching, auto
@@ -231,6 +234,11 @@ async def chat(request: ChatRequest):
                 q.put(payload)
 
             def run_orchestrator():
+                # Acquire global lock to prevent state mixing between simultaneous requests
+                if not chat_lock.acquire(blocking=False):
+                    q.put({"type": "error", "message": "The AI is currently processing another request. Please wait until it finishes."})
+                    q.put(None)
+                    return
                 try:
                     # Clear any stale cancel signal before starting
                     generation_cancel.clear()
@@ -270,7 +278,9 @@ async def chat(request: ChatRequest):
                 except Exception as ex:
                     if not generation_cancel.is_set():
                         q.put({"type": "error", "message": str(ex)})
-                q.put(None)  # Sentinel
+                finally:
+                    chat_lock.release()
+                    q.put(None)  # Sentinel
 
             thread = threading.Thread(target=run_orchestrator)
             thread.start()
