@@ -29,31 +29,44 @@ class WebSearch:
             return self._ddg_search_api(query, max_results)
 
     def _searxng_search(self, query, max_results=5):
-        """Search using SearXNG JSON API."""
-        try:
-            safe_query = urllib.parse.quote(query)
-            url = f"{self.searxng_url.rstrip('/')}/search?q={safe_query}&format=json"
-            
-            response = self._session.get(url, timeout=5.0)
-            data = response.json()
+        """Search using SearXNG JSON API with multiple instance fallbacks."""
+        # Try multiple public SearXNG instances in case one is down
+        instances = [
+            self.searxng_url,
+            "https://search.ononoki.org",
+            "https://searx.tiekoetter.com",
+            "https://search.sapti.me",
+        ]
+        safe_query = urllib.parse.quote(query)
+        
+        for instance_url in instances:
+            try:
+                url = f"{instance_url.rstrip('/')}/search?q={safe_query}&format=json"
+                response = self._session.get(url, timeout=5.0)
                 
-            results = []
-            if "results" in data:
-                for item in data["results"][:max_results]:
-                    results.append({
-                        "title": item.get("title", ""),
-                        "link": item.get("url", ""),
-                        "snippet": item.get("content", "")
-                    })
+                # Skip if we got HTML instead of JSON (captcha/error page)
+                content_type = response.headers.get('content-type', '')
+                if 'json' not in content_type and not response.text.strip().startswith('{'):
+                    print(f"SearXNG {instance_url} returned non-JSON. Trying next...")
+                    continue
                     
-            if results:
-                return results
-            else:
-                print("SearXNG returned 0 results. Falling back to DuckDuckGo...")
-                return self._ddg_search_api(query, max_results)
-        except Exception as e:
-            print(f"SearXNG search failed: {str(e)}. Falling back to DuckDuckGo...")
-            return self._ddg_search_api(query, max_results)
+                data = response.json()
+                results = []
+                if "results" in data:
+                    for item in data["results"][:max_results]:
+                        results.append({
+                            "title": item.get("title", ""),
+                            "link": item.get("url", ""),
+                            "snippet": item.get("content", "")
+                        })
+                if results:
+                    return results
+            except Exception as e:
+                print(f"SearXNG {instance_url} failed: {str(e)}. Trying next...")
+                continue
+        
+        print("All SearXNG instances failed. Falling back to DuckDuckGo...")
+        return self._ddg_search_api(query, max_results)
 
     def _google_search(self, query, max_results=5):
         """Search using Google Custom Search JSON API."""
@@ -85,7 +98,11 @@ class WebSearch:
         try:
             import warnings
             warnings.filterwarnings("ignore", category=RuntimeWarning)
-            from duckduckgo_search import DDGS
+            # Try new package name first, fall back to old one
+            try:
+                from ddgs import DDGS
+            except ImportError:
+                from duckduckgo_search import DDGS
             with DDGS() as ddgs:
                 results = []
                 for r in ddgs.text(query, max_results=max_results):
