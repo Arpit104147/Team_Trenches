@@ -2,6 +2,23 @@ import React, { useState, useEffect, useRef } from "react";
 import "./index.css";
 
 /* ═══════════════════════════════════════════════════
+   KATEX DEFERRED LOADING HOOK
+   KaTeX loads with defer for faster page startup.
+   This hook triggers a re-render when KaTeX finishes
+   loading, so math formulas auto-render (Gemini-style).
+   ═══════════════════════════════════════════════════ */
+const useKatexReady = () => {
+  const [ready, setReady] = useState(!!window.katex);
+  useEffect(() => {
+    if (window.katex) { setReady(true); return; }
+    const onReady = () => setReady(true);
+    window.addEventListener('katex-ready', onReady);
+    return () => window.removeEventListener('katex-ready', onReady);
+  }, []);
+  return ready;
+};
+
+/* ═══════════════════════════════════════════════════
    PLOTLY 3D CHART COMPONENT
    ═══════════════════════════════════════════════════ */
 const PlotlyChart = ({ jsonStr }) => {
@@ -283,6 +300,10 @@ const parseAndRenderSegment = (segment) => {
 };
 
 const MessageRenderer = ({ text }) => {
+  // Subscribe to KaTeX load event — triggers re-render when KaTeX finishes loading
+  // eslint-disable-next-line no-unused-vars
+  const katexReady = useKatexReady();
+
   if (!text) return null;
 
   // Split on both Plotly JSON blocks and HTML Artifact blocks
