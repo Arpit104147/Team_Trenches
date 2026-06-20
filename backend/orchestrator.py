@@ -740,9 +740,27 @@ class AgentOrchestrator:
         };
         global.navigator = { userAgent: "" };
         
-        // Mock THREE.js to catch missing API constructors or undefined variables
+        // Mock THREE.js via a Universal Proxy to catch missing API constructors or undefined variables
         const createProxy = (name) => {
-            return new Proxy(function() {}, {
+            const mockFn = function() {};
+            
+            // Common nested properties to avoid undefined errors during instantiation/method chains
+            mockFn.position = { x: 0, y: 0, z: 0, set: () => {}, copy: () => {} };
+            mockFn.rotation = { x: 0, y: 0, z: 0, set: () => {} };
+            mockFn.scale = { x: 1, y: 1, z: 1, set: () => {} };
+            mockFn.shadowMap = { enabled: false, type: 0 };
+            mockFn.color = { set: () => {}, setHex: () => {}, setRGB: () => {} };
+            mockFn.domElement = { addEventListener: () => {}, removeEventListener: () => {}, style: {} };
+            mockFn.add = () => {};
+            mockFn.render = () => {};
+            mockFn.setSize = () => {};
+            mockFn.setPixelRatio = () => {};
+            mockFn.update = () => {};
+            mockFn.lookAt = () => {};
+            mockFn.set = () => {};
+            mockFn.clone = () => mockFn;
+            
+            return new Proxy(mockFn, {
                 construct(target, args) {
                     return createProxy(name);
                 },
@@ -751,25 +769,20 @@ class AgentOrchestrator:
                     if (prop === 'ArcGeometry') {
                         return undefined; // Will throw TypeError
                     }
-                    if (['Scene', 'PerspectiveCamera', 'WebGLRenderer', 'AmbientLight', 'PointLight', 'SphereGeometry', 'MeshBasicMaterial', 'Mesh', 'RingGeometry', 'TorusGeometry', 'BufferGeometry', 'OrbitControls', 'Vector3', 'Line', 'LineBasicMaterial', 'GridHelper'].includes(prop)) {
-                        return function() {
-                            this.position = { x: 0, y: 0, z: 0, set: () => {} };
-                            this.rotation = { x: 0, y: 0, z: 0 };
-                            this.scale = { x: 1, y: 1, z: 1 };
-                            this.add = () => {};
-                            this.domElement = {};
-                            this.render = () => {};
-                            this.setSize = () => {};
-                        };
+                    if (prop in target) {
+                        return target[prop];
                     }
+                    // Return a new proxy for un-mocked nested properties
                     return createProxy(`${name}.${prop}`);
+                },
+                set(target, prop, value) {
+                    target[prop] = value;
+                    return true;
                 }
             });
         };
         global.THREE = createProxy('THREE');
-        global.Plotly = {
-            newPlot: () => {}
-        };
+        global.Plotly = createProxy('Plotly');
         
         // Safe console mock
         global.console = {
@@ -901,12 +914,27 @@ class AgentOrchestrator:
             "Output ONLY code in ```python``` blocks.\n\n"
             f"Topic: {compiled_plan[:3000]}"
         )
-        viz_code = self._call_model(coder_llm, viz_prompt, max_tokens=gen_tokens, temperature=gen_temp)
+        viz_code = self._call_model(
+            coder_llm, 
+            viz_prompt, 
+            max_tokens=gen_tokens, 
+            temperature=gen_temp,
+            system_prompt=(
+                "You are an expert Python coder. Write ONLY valid Python code inside a single ```python``` code block. "
+                "Do NOT write any normal conversational text outside the code block."
+            )
+        )
         viz_extract = Sandbox.extract_code(viz_code)
-
-        if status_callback:
-            status_callback("Rendering 3D Visualization...", "info", "opencode", 98)
-        viz_success, viz_output = self.sandbox.execute(viz_extract)
+        
+        # Ensure we only try to execute if it looks like python code
+        has_python = "import" in viz_extract or "def " in viz_extract or "fig" in viz_extract
+        viz_success = False
+        viz_output = ""
+        
+        if has_python:
+            if status_callback:
+                status_callback("Rendering 3D Visualization...", "info", "opencode", 98)
+            viz_success, viz_output = self.sandbox.execute(viz_extract)
 
         # Reflexion self-fix loop for Strategy 2: Max 2 self-fix attempts
         for attempt in range(2):
@@ -915,7 +943,7 @@ class AgentOrchestrator:
             if status_callback:
                 status_callback(f"Fixing 3D syntax/runtime error (Round {attempt+1})...", "warning", "opencode", 99)
             
-            error_details = viz_output
+            error_details = viz_output if viz_output else "No valid python code block was generated."
             if viz_success and not viz_output.strip().startswith("{"):
                 error_details = "Code ran successfully but failed to print JSON. Make sure the last line is print(fig.to_json())"
                 
@@ -925,17 +953,35 @@ class AgentOrchestrator:
                 f"Use ONLY go.Figure(), go.Surface/Scatter3d, and fig.update_layout(). "
                 f"Output ONLY the corrected script in ```python``` blocks. End with print(fig.to_json())."
             )
-            viz_fixed = self._call_model(coder_llm, fix_p, max_tokens=gen_tokens, temperature=gen_temp)
+            viz_fixed = self._call_model(
+                coder_llm, 
+                fix_p, 
+                max_tokens=gen_tokens, 
+                temperature=gen_temp,
+                system_prompt=(
+                    "You are an expert Python coder. Write ONLY valid Python code inside a single ```python``` code block. "
+                    "Do NOT write any normal conversational text outside the code block."
+                )
+            )
             viz_extract = Sandbox.extract_code(viz_fixed)
-            viz_success, viz_output = self.sandbox.execute(viz_extract)
             viz_code = viz_fixed
+            
+            has_python = "import" in viz_extract or "def " in viz_extract or "fig" in viz_extract
+            if has_python:
+                viz_success, viz_output = self.sandbox.execute(viz_extract)
+            else:
+                viz_success = False
+                viz_output = "Model failed to output a valid code block."
 
         if viz_success and viz_output and viz_output.strip().startswith("{"):
             return f"\n\n### 3D Interactive Visualization\n<!--PLOTLY_JSON-->\n{viz_output.strip()}\n<!--/PLOTLY_JSON-->"
 
-        # Final fallback: show the code with error
-        error_msg = f"\n\n**Execution Error:**\n```text\n{viz_output}\n```" if not viz_success else ""
-        return f"\n\n### 3D Visualization Script\n{viz_code}{error_msg}"
+        # Final fallback: show the code with error (ensure code blocks are wrapped properly)
+        error_msg = f"\n\n**Execution Error:**\n```text\n{viz_output}\n```" if viz_output else ""
+        formatted_code = viz_code
+        if "```" not in formatted_code:
+            formatted_code = f"```python\n{formatted_code}\n```"
+        return f"\n\n### 3D Visualization Script\n{formatted_code}{error_msg}"
 
     # =========================================================================
     # MAIN PIPELINE ENTRY POINT
