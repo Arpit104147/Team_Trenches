@@ -191,7 +191,14 @@ const renderInlineElements = (text) => {
       return <React.Fragment key={index}>{renderMath(chunk.slice(2, -2).trim(), false)}</React.Fragment>;
     }
     if (chunk.startsWith("$") && chunk.endsWith("$")) {
-      return <React.Fragment key={index}>{renderMath(chunk.slice(1, -1).trim(), false)}</React.Fragment>;
+      const content = chunk.slice(1, -1).trim();
+      // Smart check: if content contains common english words or is a simple currency amount, don't treat as math
+      const commonWords = /\b(and|or|the|a|an|of|to|in|is|that|it|costs|buy|price|each|for|with|at|from|by|on|this|that|these|those)\b/i;
+      const isCurrency = /^\d+(\.\d{2})?$/; // e.g. 10 or 9.99
+      if (commonWords.test(content) || isCurrency.test(content)) {
+        return chunk; // Return original text including dollar signs
+      }
+      return <React.Fragment key={index}>{renderMath(content, false)}</React.Fragment>;
     }
     if (chunk.startsWith("**") && chunk.endsWith("**")) {
       return <strong key={index}>{chunk.slice(2, -2)}</strong>;
@@ -240,21 +247,26 @@ const parseAndRenderSegment = (segment) => {
             return <h1 key={j} className="md-h1">{renderInlineElements(line.slice(2))}</h1>;
           }
 
-          if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          const listMatch = line.match(/^(\s*)([-*]|\d+\.)\s+(.*)/);
+          if (listMatch) {
+            const indent = listMatch[1].length;
+            const marker = listMatch[2];
+            const content = listMatch[3];
+            const isNumbered = /^\d+\.$/.test(marker);
             return (
-              <div key={j} className="md-list-item bullet">
-                <span className="bullet-dot">•</span>
-                <span className="bullet-content">{renderInlineElements(trimmed.slice(2))}</span>
-              </div>
-            );
-          }
-
-          const numMatch = trimmed.match(/^(\d+)\.\s(.*)/);
-          if (numMatch) {
-            return (
-              <div key={j} className="md-list-item numbered">
-                <span className="num-prefix">{numMatch[1]}.</span>
-                <span className="num-content">{renderInlineElements(numMatch[2])}</span>
+              <div 
+                key={j} 
+                className={`md-list-item ${isNumbered ? "numbered" : "bullet"}`}
+                style={{ paddingLeft: `${indent * 8 + 12}px` }}
+              >
+                {isNumbered ? (
+                  <span className="num-prefix">{marker}</span>
+                ) : (
+                  <span className="bullet-dot">•</span>
+                )}
+                <span className="bullet-content">
+                  {renderInlineElements(content)}
+                </span>
               </div>
             );
           }
@@ -582,7 +594,8 @@ export default function App() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Bypass-Tunnel-Reminder": "true"
+          "Bypass-Tunnel-Reminder": "true",
+          "bypass-tunnel-reminder": "true"
         },
         signal: controller.signal,
         body: JSON.stringify({
@@ -829,7 +842,27 @@ export default function App() {
         {/* ── INPUT AREA ── */}
         <div className="input-area">
           <div className="input-wrapper">
-            {attachedImage && <span className="image-badge">📎 Image attached</span>}
+            {attachedImage && (
+              <span className="image-badge">
+                📎 Image attached
+                <button 
+                  onClick={() => setAttachedImage(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "white",
+                    marginLeft: "6px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                    fontSize: "0.8rem",
+                    padding: "0 2px"
+                  }}
+                  title="Remove image"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
 
             {/* Popup menu */}
             {menuOpen && (
