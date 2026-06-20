@@ -1221,6 +1221,7 @@ class AgentOrchestrator:
     # =====================================================================
     def _coding_pipeline(self, prompt, enriched_prompt, router_llm,
                          router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
+        logic_temp = 0.6
         ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback)
 
         # ── Retrieve relevant past experiences from Memory/RAG ────────────
