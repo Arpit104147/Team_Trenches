@@ -252,6 +252,14 @@ The React UI streams the pipeline status in real-time:
 
 ---
 
+### 11 — Predictive Playground & Live API Data
+The sandboxed python environment supports live prediction and data analysis:
+- **Real-Time Data Fetching:** Whitelisted network access via `requests`, `urllib`, and `http` allowing the code executor to query open REST APIs (e.g., Yahoo Finance, Open-Meteo, Alpha Vantage).
+- **Exact Numerical Forecasting:** The agent can write python code utilizing `numpy` and `pandas` to run moving averages, regressions, standard deviations, and Monte Carlo trend simulations on the retrieved real-world datasets rather than guessing or hallucinating numbers.
+- **Dynamic 3D Plotting:** Renders predictive forecasts into responsive WebGL (Three.js) or Plotly interactive 3D charts.
+
+---
+
 ## 📦 Setup & Installation
 
 See the dedicated guides:
@@ -320,6 +328,11 @@ Team_Trenches/
 
 **3D Physics Simulation:**
 > *Simulate the orbital mechanics of a binary star system. Give me the mathematical explanation, and then generate an interactive 3D visualization showing the orbital paths of the two stars.*
+
+**Live Prediction Playground (Weather / Stocks):**
+> *Fetch the current weather outlook for Mumbai and use polynomial regression to predict the temperature curve for the next 7 days, plotting it in an interactive 3D WebGL chart.*
+>
+> *Fetch historical AAPL stock prices from the web, compute a 30-day Exponential Moving Average (EMA) to project next week's buy/sell targets, and render a 3D Plotly visual.*
 
 **Deep Reasoning + Verification:**
 > *Prove that the sum of the first N natural numbers is N(N+1)/2. Verify it computationally for N=100.*
