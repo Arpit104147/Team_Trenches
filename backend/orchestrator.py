@@ -1054,9 +1054,12 @@ class AgentOrchestrator:
                 print(f"Web search enrichment failed: {e}")
                 web_context = ""
                 
+        import datetime
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         enriched_prompt = (
-            f"Web Context:\n{web_context}\n\nUser Query:\n{prompt}"
-            if web_context else prompt
+            f"Current System Date/Time: {current_date}\n\nWeb Context:\n{web_context}\n\nUser Query:\n{prompt}"
+            if web_context else f"Current System Date/Time: {current_date}\n\nUser Query:\n{prompt}"
         )
 
         # ── Dynamic Context Sizing (VRAM-aware) ────────────────────────
