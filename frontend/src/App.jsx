@@ -55,17 +55,15 @@ const PlotlyChart = ({ jsonStr }) => {
 const ArtifactSandbox = ({ htmlCode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [injectedHtml, setInjectedHtml] = useState("");
   const iframeRef = useRef(null);
 
-  // Build a blob URL from the HTML code for secure sandboxed rendering (uses state to trigger re-render)
-  const [blobUrl, setBlobUrl] = useState(null);
   useEffect(() => {
     if (!htmlCode) return;
-    let url = null;
     try {
       // Bulletproof dark mode and Error Catcher injection
-      let injectedHtml = htmlCode;
-      if (!injectedHtml.includes("window.onerror")) {
+      let doc = htmlCode;
+      if (!doc.includes("window.onerror")) {
         const injection = `
           <style>
             html, body { background-color: #0d0d0d !important; color: #e0e0e0 !important; margin: 0; padding: 0; font-family: monospace; height: 100%; overflow: hidden; }
@@ -83,29 +81,23 @@ const ArtifactSandbox = ({ htmlCode }) => {
             };
           </script>
         `;
-        const lowerHtml = injectedHtml.toLowerCase();
+        const lowerHtml = doc.toLowerCase();
         if (lowerHtml.includes("</head>")) {
           const index = lowerHtml.indexOf("</head>");
-          injectedHtml = injectedHtml.substring(0, index) + injection + injectedHtml.substring(index);
+          doc = doc.substring(0, index) + injection + doc.substring(index);
         } else if (lowerHtml.includes("<body>")) {
           const index = lowerHtml.indexOf("<body>");
-          injectedHtml = injectedHtml.substring(0, index + 6) + injection + injectedHtml.substring(index + 6);
+          doc = doc.substring(0, index + 6) + injection + doc.substring(index + 6);
         } else {
-          injectedHtml = injection + injectedHtml;
+          doc = injection + doc;
         }
       }
-      
-      const blob = new Blob([injectedHtml], { type: "text/html" });
-      url = URL.createObjectURL(blob);
-      setBlobUrl(url);
+      setInjectedHtml(doc);
       setHasError(false);
     } catch (err) {
-      console.error("Artifact blob error:", err);
+      console.error("Artifact injection error:", err);
       setHasError(true);
     }
-    return () => {
-      if (url) URL.revokeObjectURL(url);
-    };
   }, [htmlCode]);
 
   if (hasError || !htmlCode) {
@@ -145,10 +137,10 @@ const ArtifactSandbox = ({ htmlCode }) => {
         </div>
       </div>
       <div className="artifact-iframe-wrap">
-        {blobUrl && (
+        {injectedHtml && (
           <iframe
             ref={iframeRef}
-            src={blobUrl}
+            srcDoc={injectedHtml}
             sandbox="allow-scripts allow-same-origin"
             title="AI Artifact"
             className="artifact-iframe"
