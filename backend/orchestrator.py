@@ -1052,19 +1052,27 @@ class AgentOrchestrator:
                 
                 results = self.web_search.search(search_query, max_results=3)
                 
-                # 2. Deep Page Scraping (Scrape the #1 result)
-                if results and len(results) > 0:
-                    first_link = results[0].get('link', '')
-                    if first_link:
-                        if status_callback:
-                            status_callback(f"Deep scraping: {first_link[:40]}...", "info", "router", 12)
-                        
-                        full_page_text = self.web_search.scrape_url(first_link)
-                        
-                        if full_page_text:
-                            web_context = f"--- FULL PAGE CONTEXT ({first_link}) ---\n{full_page_text}\n\n"
-                        
-                    # Add snippets for the rest
+                # 2. Deep Page Scraping (Iterate through results to find a scrapeable page)
+                scraped_link = None
+                full_page_text = ""
+                if results:
+                    for r in results:
+                        link = r.get('link', '')
+                        if link:
+                            if status_callback:
+                                status_callback(f"Scraping: {link[:40]}...", "info", "router", 12)
+                            
+                            text = self.web_search.scrape_url(link)
+                            if text and len(text.strip()) > 200:  # Ensure it has substantial content
+                                full_page_text = text
+                                scraped_link = link
+                                break
+                                
+                if full_page_text and scraped_link:
+                    web_context = f"--- FULL PAGE CONTEXT ({scraped_link}) ---\n{full_page_text}\n\n"
+                    
+                # Add snippets for all search results to provide a comprehensive baseline
+                if results:
                     snippets = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in results])
                     if snippets:
                         web_context += f"--- OTHER SNIPPETS ---\n{snippets}"

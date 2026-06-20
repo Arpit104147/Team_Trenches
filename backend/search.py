@@ -176,6 +176,17 @@ class WebSearch:
         try:
             print(f"Deep scraping: {url}")
             response = self._session.get(url, timeout=8.0)
+            if response.status_code != 200:
+                print(f"Failed to scrape {url} (Status: {response.status_code})")
+                return ""
+            
+            # Check for common bot-protection/blocking pages
+            lower_text = response.text.lower()
+            block_markers = ["cloudflare", "captcha", "attention required", "access denied", "checking your browser", "ddos protection", "robot check"]
+            if any(marker in lower_text for marker in block_markers):
+                print(f"Scrape block detected (Cloudflare/Captcha/Access Denied) for {url}")
+                return ""
+
             soup = BeautifulSoup(response.content, "html.parser")
             
             # Remove junk elements
