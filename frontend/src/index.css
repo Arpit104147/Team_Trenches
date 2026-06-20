@@ -56,7 +56,7 @@ body {
    ═══════════════════════════════════════════════════ */
 .sidebar {
   width: 260px;
-  min-width: 260px;
+  flex-shrink: 0;
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
@@ -67,9 +67,9 @@ body {
 
 .sidebar.closed {
   width: 0;
-  min-width: 0;
   transform: translateX(-260px);
   overflow: hidden;
+  border-right: none;
 }
 
 .sidebar-top {
