@@ -177,6 +177,7 @@ The pipeline has two distinct sandboxes that run at different stages:
   - Process isolation (crashes can't kill the server)
   - Restricted `__import__` whitelist (no `os`, `subprocess`, `socket`)
   - Linux resource caps (1 GB RAM, 120s CPU, 50 child processes)
+- **Unrestricted Fallback Mode:** If the secure restricted sandbox blocks a legitimate external library (e.g. PyTorch, external REST APIs), the orchestrator elegantly falls back to unrestricted execution, prefixing outputs with `⚠️ [Unrestricted Fallback]` to ensure transparency.
 - Supports **Python, C, C++, Java, JavaScript, and Bash** — auto-detected from code signatures
 
 ---
@@ -235,12 +236,11 @@ Upload any image alongside a prompt for multimodal analysis:
 
 ---
 
-### 9 — Prompt Cruncher
-Prevents context overflow when very long documents or code are pasted:
-- Estimates token count from character length
-- If the prompt exceeds the model's context limit, it **summarizes the middle section** using the Router
-- Preserves the start and end of the prompt intact (where the most important context usually lives)
-- Safety net caps at 50,000 characters for extreme-length inputs
+### 9 — Context Overflow & Prompt Cruncher
+Prevents context window crashes when extremely long documents or code blocks are pasted:
+- **Smart Token Allocation:** Dynamically balances generation space (`max_tokens`) against prompt length. If context is tight, it automatically shrinks the generation ceiling (down to a safe minimum of 512 tokens) to preserve your prompt entirely without truncating it.
+- If the prompt still exceeds the absolute context limit, it safely truncates the middle section while preserving the start and end of the prompt intact (where the most important instructions live).
+- Safety net caps at 50,000 characters for extreme-length inputs to protect VRAM.
 
 ---
 
