@@ -1467,7 +1467,7 @@ class AgentOrchestrator:
                 ds_answer = ""
                 for rnd in range(max_rounds):
                     if status_callback:
-                        lbl = f"Nuclear Reset #{reset}: DeepSeek-R1 re-reasoning..." if reset else "DeepSeek-R1 reasoning + playground..."
+                        lbl = f"Nuclear Reset #{reset} (Attempt {rnd+1}/3): DeepSeek-R1 re-reasoning..." if reset else f"DeepSeek-R1 reasoning + playground (Attempt {rnd+1}/3)..."
                         status_callback(lbl, "info" if not reset else "warning", "deepseek_r1", 25 + rnd*12)
                     draft_p = f"Provide a detailed, rigorous answer:\n{ds_safe}"
                     if rnd > 0:
@@ -1481,7 +1481,7 @@ class AgentOrchestrator:
                     ds_answer = self._strip_thinking(self._call_model(ds_llm, draft_p, gen_tokens, gen_temp, system_prompt=reasoning_sys))
 
                     if status_callback:
-                        status_callback("Verifying in Reasoning Playground...", "info", "deepseek_r1", 35 + rnd*12)
+                        status_callback(f"Verifying in Reasoning Playground (Attempt {rnd+1}/3)...", "info", "deepseek_r1", 35 + rnd*12)
                     verified, pg_out, test_code = self._run_playground(ds_llm, ds_answer, "reasoning")
 
                     if verified:
@@ -1499,7 +1499,7 @@ class AgentOrchestrator:
 
                     # VibeThinker tries to fix
                     if status_callback:
-                        status_callback("VibeThinker correcting reasoning...", "warning", "vibethinker", 45 + rnd*12)
+                        status_callback(f"VibeThinker correcting reasoning (Attempt {rnd+1}/3)...", "warning", "vibethinker", 45 + rnd*12)
                     vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
                     vibe_p = (
                         f"This answer failed verification.\nAnswer:\n{ds_answer[:2000]}\n"
