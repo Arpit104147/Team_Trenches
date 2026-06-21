@@ -248,7 +248,6 @@ async def chat(request: ChatRequest):
                     if request.image:
                         if generation_cancel.is_set():
                             q.put({"type": "error", "message": "Generation cancelled."})
-                            q.put(None)
                             return
                         try:
                             ocr_text = orchestrator.transcribe_image(request.image, status_callback=thread_cb)
@@ -262,7 +261,6 @@ async def chat(request: ChatRequest):
                     
                     if generation_cancel.is_set():
                         q.put({"type": "error", "message": "Generation cancelled."})
-                        q.put(None)
                         return
                             
                     res = orchestrator.process_query(

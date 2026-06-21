@@ -498,10 +498,13 @@ class AgentOrchestrator:
             
         # Handle unclosed <think> tag gracefully without wiping code
         if '<think>' in text and '</think>' not in text:
-            if '```' in text.split('<think>', 1)[1]:
-                text = text.replace('```', '</think>\n```', 1)
+            before_think, after_think = text.split('<think>', 1)
+            if '```' in after_think:
+                # Close the think block right before the first code fence
+                after_think = after_think.replace('```', '</think>\n```', 1)
+                text = before_think + '<think>' + after_think
             else:
-                return text.replace('<think>', '').strip()
+                return (before_think + after_think).strip()
                 
         cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
         
