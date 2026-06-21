@@ -1211,7 +1211,7 @@ class AgentOrchestrator:
         if past_experience:
             ds_safe += past_experience
 
-        max_resets = 3
+        max_resets = 2
         lessons = ""
         all_errors = []
 
