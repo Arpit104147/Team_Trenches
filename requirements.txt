@@ -19,3 +19,4 @@ networkx>=3.2
 astropy>=6.0
 biopython>=1.83
 rdkit>=2023.9.5
+plotly>=5.20.0

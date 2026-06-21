@@ -23,9 +23,11 @@ const useKatexReady = () => {
    ═══════════════════════════════════════════════════ */
 const PlotlyChart = ({ jsonStr }) => {
   const chartRef = useRef(null);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
     if (!chartRef.current) return;
+    setErrorMsg(null);
     try {
       const fig = JSON.parse(jsonStr);
       
@@ -47,15 +49,46 @@ const PlotlyChart = ({ jsonStr }) => {
 
       const data = Array.isArray(fig.data) ? fig.data : [fig.data];
 
+      if (!window.Plotly) {
+        throw new Error("Plotly.js library failed to load from CDN.");
+      }
+
+      // Plotly.react handles initial render or updates automatically
       window.Plotly.react(chartRef.current, data, layout, {
         responsive: true,
         displayModeBar: true,
         displaylogo: false,
+      }).catch(err => {
+        setErrorMsg(`Plotly drawing error: ${err.message}`);
       });
     } catch (err) {
       console.error("Plotly render error:", err);
+      setErrorMsg(err.message || String(err));
     }
   }, [jsonStr]);
+
+  if (errorMsg) {
+    return (
+      <div className="plotly-chart-container error-state" style={{
+        width: "100%", height: "450px", borderRadius: "12px", margin: "12px 0",
+        border: "1px solid #ff4444", background: "rgba(255,0,0,0.1)",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px"
+      }}>
+        <span style={{ fontSize: "2rem", marginBottom: "10px" }}>⚠️</span>
+        <h3 style={{ color: "#ff8888", margin: "0 0 10px 0" }}>Visualization Render Error</h3>
+        <p style={{ color: "#ffaaaa", textAlign: "center", wordBreak: "break-all" }}>{errorMsg}</p>
+        <details style={{ marginTop: "15px", color: "#888", width: "100%" }}>
+          <summary style={{ cursor: "pointer", outline: "none" }}>Show Raw JSON Data</summary>
+          <pre style={{ 
+            marginTop: "10px", maxHeight: "150px", overflowY: "auto", 
+            background: "rgba(0,0,0,0.3)", padding: "10px", borderRadius: "5px", fontSize: "0.75rem" 
+          }}>
+            {jsonStr}
+          </pre>
+        </details>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -68,7 +101,7 @@ const PlotlyChart = ({ jsonStr }) => {
         overflow: "hidden",
         margin: "12px 0",
         border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(0,0,0,0.3)",
+        background: "rgba(0,0,0,0.2)",
       }}
     />
   );
