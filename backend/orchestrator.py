@@ -1487,6 +1487,7 @@ class AgentOrchestrator:
                     if verified:
                         if status_callback:
                             status_callback("Reasoning VERIFIED!", "success", "deepseek_r1", 80)
+                        self.memory.save(prompt, ds_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, ds_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         verification_block = (
@@ -1510,6 +1511,8 @@ class AgentOrchestrator:
                     if v2:
                         if status_callback:
                             status_callback("VibeThinker's correction VERIFIED!", "success", "vibethinker", 80)
+                        self.memory.save(prompt, vibe_answer)
+                        self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         verification_block = (
@@ -1565,6 +1568,8 @@ class AgentOrchestrator:
                     if v2:
                         if status_callback:
                             status_callback("Emergency Search Healing SUCCESSFUL!", "success", "vibethinker", 100)
+                        self.memory.save(prompt, vibe_answer)
+                        self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         verification_block = (
