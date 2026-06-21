@@ -517,23 +517,66 @@ class AgentOrchestrator:
         return text_without_tags.strip()
 
 
-    def _crunch_prompt(self, prompt, target_model, max_tokens_limit, status_callback=None, router_llm=None):
-        """Compresses a massive prompt safely using the fast Router model."""
-        # Guard: if ctx is smaller than generation headroom, don't try to compress
-        max_tokens_limit = max(512, max_tokens_limit)
-        est_tokens = len(prompt) // 4
-        if est_tokens <= max_tokens_limit:
+    def _crunch_prompt(self, prompt, target_model, prompt_token_budget, status_callback=None, router_llm=None):
+        """Compresses a massive prompt using semantic line boundaries and fast summarization."""
+        # Ensure router is loaded first to use its tokenizer
+        if router_llm is None:
+            router_llm = self._get_model("router", required_ctx=8192)
+
+        # Precise Token Estimation
+        if hasattr(router_llm, "tokenize"):
+            est_tokens = len(router_llm.tokenize(prompt.encode('utf-8')))
+        else:
+            est_tokens = len(prompt) // 3
+
+        # Guard: if the prompt fits inside the budget, no need to compress
+        prompt_token_budget = max(512, prompt_token_budget)
+        if est_tokens <= prompt_token_budget:
             return prompt
             
         if status_callback:
-            status_callback(f"Prompt Cruncher active for {target_model} ({est_tokens} tokens > {max_tokens_limit} max). Compressing...", "warning", target_model, 12)
+            status_callback(f"Semantic Cruncher active for {target_model} ({est_tokens} tokens > {prompt_token_budget} max). Compressing...", "warning", target_model, 12)
             
-        chars_allowed = max_tokens_limit * 4
-        chunk_size = chars_allowed // 3
+        # We need to slice the string, but strictly at newline boundaries to preserve words and code formatting
+        lines = prompt.split('\n')
+        total_chars = sum(len(l) for l in lines)
+        chars_allowed = prompt_token_budget * 3
         
-        start_chunk = prompt[:chunk_size]
-        middle_chunk = prompt[chunk_size:-chunk_size]
-        end_chunk = prompt[-chunk_size:]
+        # 30% of allowed budget at the top, 70% at the bottom
+        top_char_budget = int(chars_allowed * 0.3)
+        bottom_char_budget = int(chars_allowed * 0.7)
+        
+        start_lines = []
+        start_chars = 0
+        in_code_block = False
+        while lines and (start_chars < top_char_budget or in_code_block):
+            line = lines.pop(0)
+            if line.strip().startswith("```"):
+                in_code_block = not in_code_block
+            start_lines.append(line)
+            start_chars += len(line) + 1
+            
+        end_lines = []
+        end_chars = 0
+        while lines and end_chars < bottom_char_budget:
+            line = lines.pop()
+            end_lines.insert(0, line)
+            end_chars += len(line) + 1
+            
+        # Code-block safety for the bottom chunk (moving backwards)
+        code_blocks = sum(1 for l in end_lines if l.strip().startswith("```"))
+        if code_blocks % 2 != 0:
+            # We sliced through a code block. Keep grabbing lines until we find the opening ```
+            while lines:
+                line = lines.pop()
+                end_lines.insert(0, line)
+                if line.strip().startswith("```"):
+                    break
+            
+        # Whatever is left in 'lines' is the middle chunk that needs summarizing
+        middle_chunk = '\n'.join(lines)
+        start_chunk = '\n'.join(start_lines)
+        end_chunk = '\n'.join(end_lines)
         
         # Safety net: Don't spend hours summarizing a 500MB file
         if len(middle_chunk) > 50000:
@@ -541,9 +584,6 @@ class AgentOrchestrator:
             
         compress_prompt = f"Summarize this middle section concisely. Keep all logic, facts, and code structure intact:\n{middle_chunk}"
         
-        # Reuse pre-loaded router if available, otherwise load it
-        if router_llm is None:
-            router_llm = self._get_model("router", required_ctx=8192)
         if isinstance(router_llm, TransformerWrapper):
             middle_summary = router_llm(compress_prompt, max_tokens=1024)
         else:
@@ -568,33 +608,61 @@ class AgentOrchestrator:
         # Context overflow protection for llama-cpp-python
         if hasattr(llm, "n_ctx"):
             ctx = llm.n_ctx()
-            # Chat template overhead: role markers, BOS/EOS tokens (~100 tokens)
-            template_overhead = 120
-            # Estimate prompt tokens: ~3.3 chars per token (conservative)
-            est_prompt_tokens = len(prompt) // 3 + template_overhead
-            if system_prompt:
-                est_prompt_tokens += len(system_prompt) // 3
-            
-            # Smart token allocation: if total tokens exceed ctx, first reduce max_tokens to fit prompt
-            if est_prompt_tokens + max_tokens > ctx:
-                # Leave at least 512 tokens for generation
-                max_tokens = max(512, ctx - est_prompt_tokens - 50)
-            
-            # If even with minimum generation tokens the prompt doesn't fit, truncate the prompt
-            max_prompt_chars = (ctx - max_tokens - template_overhead) * 3
-            if system_prompt:
-                max_prompt_chars -= len(system_prompt)
-            if max_prompt_chars < 900:
-                max_prompt_chars = 900
-                
-            if len(prompt) > max_prompt_chars:
-                # Keep beginning and end of prompt (most important parts)
-                keep_start = int(max_prompt_chars * 0.3)
-                keep_end = int(max_prompt_chars * 0.7)
-                prompt = prompt[:keep_start] + "\n...[TRUNCATED FOR CONTEXT LIMIT]...\n" + prompt[-keep_end:]
-                est_prompt_tokens = len(prompt) // 3 + template_overhead
+            # Precise Token Estimation
+            if hasattr(llm, "tokenize"):
+                est_prompt_tokens = len(llm.tokenize(prompt.encode('utf-8'))) + 120
+                if system_prompt:
+                    est_prompt_tokens += len(llm.tokenize(system_prompt.encode('utf-8')))
+            else:
+                est_prompt_tokens = len(prompt) // 3 + 120
                 if system_prompt:
                     est_prompt_tokens += len(system_prompt) // 3
+            
+            # Smart token allocation with Model-Aware Minimums
+            is_reasoning = "deepseek" in getattr(llm, "model_path", "").lower()
+            absolute_min = 2048 if is_reasoning else 512
+            
+            if est_prompt_tokens + max_tokens > ctx:
+                # Force a larger generation runway for reasoning models
+                max_tokens = max(absolute_min, ctx - est_prompt_tokens - 50)
+            
+            # If even with minimum generation tokens the prompt doesn't fit, truncate the prompt semantically
+            max_prompt_tokens = ctx - max_tokens - 120
+            if est_prompt_tokens > max_prompt_tokens:
+                chars_allowed = max_prompt_tokens * 3
+                if chars_allowed < 900: chars_allowed = 900
+                
+                lines = prompt.split('\n')
+                top_chars = int(chars_allowed * 0.3)
+                bottom_chars = int(chars_allowed * 0.7)
+                
+                start_lines, end_lines = [], []
+                curr_t, curr_b = 0, 0
+                in_code_block = False
+                
+                while lines and (curr_t < top_chars or in_code_block):
+                    l = lines.pop(0)
+                    if l.strip().startswith("```"):
+                        in_code_block = not in_code_block
+                    start_lines.append(l)
+                    curr_t += len(l) + 1
+                    
+                while lines and curr_b < bottom_chars:
+                    l = lines.pop()
+                    end_lines.insert(0, l)
+                    curr_b += len(l) + 1
+                    
+                # Code-block safety for the bottom chunk
+                code_blocks = sum(1 for l in end_lines if l.strip().startswith("```"))
+                if code_blocks % 2 != 0:
+                    while lines:
+                        l = lines.pop()
+                        end_lines.insert(0, l)
+                        if l.strip().startswith("```"):
+                            break
+                    
+                prompt = '\n'.join(start_lines) + "\n...[TRUNCATED FOR CONTEXT LIMIT]...\n" + '\n'.join(end_lines)
+                est_prompt_tokens = len(prompt) // 3 + 120
             
             # Ensure we never request more tokens than the available space
             safe_max = ctx - est_prompt_tokens

@@ -415,6 +415,7 @@ body {
 
 .msg-body {
   flex: 1;
+  min-width: 0;
   font-size: 0.95rem;
   line-height: 1.7;
   color: var(--text-primary);
