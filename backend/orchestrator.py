@@ -633,21 +633,19 @@ class AgentOrchestrator:
             "Classify this query into EXACTLY ONE category. Reply with ONLY the category name.\n\n"
             "SIMPLE — Quick factual answers, greetings, definitions, translations, yes/no questions, fetching latest news/weather/facts.\n"
             "  Examples: 'What is the capital of France?', 'Hi how are you?', 'Define entropy', 'Translate hello to Spanish', 'fetch latest weather news'\n\n"
-            "CODING — Anything that needs writing, fixing, debugging, or executing code in ANY language.\n"
+            "CODING — Prompts that explicitly ask to write, fix, debug, or compile programming code, scripts, websites, databases, or software functions.\n"
             "  Examples: 'Write a Python sort', 'Fix this code', 'Write C code for linked list',\n"
-            "  'Create a script to...', 'Debug this error', 'Build a calculator', 'Implement binary search'\n"
-            "  Keywords: write, code, script, program, implement, debug, fix, compile, function, algorithm, API\n\n"
-            "REASONING — Deep explanations, math proofs, physics theory, science analysis, logic puzzles,\n"
-            "  comparisons, detailed breakdowns, JEE/NEET level problems, step-by-step derivations.\n"
-            "  Examples: 'Explain Newton\'s laws in detail', 'Prove Pythagorean theorem',\n"
-            "  'Why is the sky blue?', 'Compare TCP vs UDP in depth', 'Solve this integral'\n"
-            "  Keywords: explain, prove, derive, analyze, compare, why, how does, in detail, theory\n\n"
+            "  'Create a script to...', 'Debug this error', 'Build a calculator app'\n"
+            "  Keywords: write code, write a script, python, javascript, C++, java, css, html, debug, fix code\n\n"
+            "REASONING — Mathematical calculations, physics simulations/derivations, logic puzzles, theory explanations, science analysis, JEE/NEET questions.\n"
+            "  Note: Even if the query asks to solve equations, simulate a system, calculate trajectories, or visualize/plot a math/scientific concept, it is REASONING unless it explicitly asks to write/fix programming code or scripts.\n"
+            "  Examples: 'Solve this integral', 'Derive Navier-Stokes', 'Explain the Lorenz Attractor and show a 3D plot', 'Calculate projectile trajectory'\n\n"
             "IMPORTANT RULES:\n"
-            "- If the query asks to EXPLAIN something AND write code → CODING\n"
-            "- If the query asks for detailed explanation with visualization → CODING\n"
+            "- If the query asks to EXPLAIN something AND write/develop programming code/scripts → CODING\n"
+            "- If the query asks for a mathematical calculation, physics simulation, or concept explanation with visualization (but NO explicit request for code/scripts) → REASONING\n"
             "- If the query simply asks to 'fetch', 'get', 'search', or 'scrape' weather, news, or facts from the web without asking to write programming code → SIMPLE or REASONING, NOT CODING.\n"
             "- If unsure between SIMPLE and REASONING → choose REASONING\n"
-            "- If unsure between CODING and REASONING → choose CODING\n\n"
+            "- If unsure between CODING and REASONING → choose REASONING (unless programming code/scripts are explicitly requested)\n\n"
             f"Query: {prompt[:500]}\n\nCategory:"
         )
         result = self._call_model(router_llm, p, max_tokens=10, temperature=0.1)
@@ -656,37 +654,13 @@ class AgentOrchestrator:
         # Override classification if the intent is purely search/weather/news and doesn't ask to create code
         prompt_lower = prompt.lower()
         search_intents = ["fetch from web", "search the web", "search for", "google for", "latest news", "weather news", "current weather", "weather of"]
-        code_intent_kws = ["write code", "write a code", "javascript code", "python code", "c++ code", "java code", "html code", "css code", "write a script", "code for", "script to", "simulate", "build", "implement"]
+        code_intent_kws = ["write code", "write a code", "javascript code", "python code", "c++ code", "java code", "html code", "css code", "write a script", "code for", "script to", "build", "implement"]
         has_code_intent = any(kw in prompt_lower for kw in code_intent_kws)
         
         if any(intent in prompt_lower for intent in search_intents) and not has_code_intent:
             if "REASONING" in upper:
                 return "REASONING"
             return "SIMPLE"
-
-        # Override: computational/simulation prompts that need code execution
-        # These are often misclassified as REASONING but require code to produce results
-        compute_keywords = [
-            "calculate", "simulate", "trajectory", "numerical", "rk4", "runge-kutta",
-            "euler method", "integration", "ode", "differential equation", "3d plot",
-            "interactive plot", "render", "visualization", "animation", "n-body",
-            "pendulum", "projectile", "orbit", "monte carlo", "finite element",
-            "neural network", "train a model", "gradient descent", "backpropagation",
-            "fourier transform", "fft", "wavelet", "signal processing",
-            "3d interactive", "figure-eight", "three-body", "chaotic"
-        ]
-        
-        # Don't override if the user explicitly wants theoretical reasoning
-        theory_keywords = ["explain", "derive", "why", "concept", "theory", "theoretically", "describe", "prove"]
-        wants_theory = any(kw in prompt_lower for kw in theory_keywords)
-        
-        # Strict compute override: Bypass theory keywords if an action keyword is present
-        action_keywords = ["calculate", "compute", "simulate", "model", "solve", "render", "plot", "show", "verify computationally", "build"]
-        has_action = any(kw in prompt_lower for kw in action_keywords)
-        
-        if any(kw in prompt_lower for kw in compute_keywords) and "CODING" not in upper:
-            if not wants_theory or has_action:
-                return "CODING"
 
         # Strict keyword extraction from model response
         if "CODING" in upper:
@@ -697,8 +671,8 @@ class AgentOrchestrator:
             return "SIMPLE"
             
         # Fallback: keyword scan on the original prompt for safety
-        code_keywords = ["write code", "write a code", "fix code", "debug", "script", "implement", "program", "compile", "function(", "def ", "class ", "import ", "calculate", "simulate", "trajectory", "numerical", "3d plot"]
-        reason_keywords = ["explain", "prove", "derive", "why ", "how does", "in detail", "theory", "analyze", "compare"]
+        code_keywords = ["write code", "write a code", "fix code", "debug", "script", "program", "compile", "function(", "def ", "class ", "import ", "coding", "develop", "web app", "website"]
+        reason_keywords = ["explain", "prove", "derive", "why ", "how does", "in detail", "theory", "analyze", "compare", "calculate", "solve", "simulate", "trajectory", "numerical", "3d plot", "interactive plot"]
         if any(kw in prompt_lower for kw in code_keywords):
             return "CODING"
         if any(kw in prompt_lower for kw in reason_keywords):
