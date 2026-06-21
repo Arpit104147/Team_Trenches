@@ -81,46 +81,82 @@ const PlotlyChart = ({ jsonStr }) => {
 const ArtifactSandbox = ({ htmlCode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [consoleLogs, setConsoleLogs] = useState([]);
+  const [showConsole, setShowConsole] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const iframeRef = useRef(null);
+
+  // Message receiver for inside-sandbox logs and errors
+  useEffect(() => {
+    const handleMessage = (e) => {
+      if (e.data && e.data.type) {
+        if (e.data.type === 'CONSOLE_LOG') {
+          setConsoleLogs(prev => [...prev, { type: 'log', text: e.data.text }]);
+        } else if (e.data.type === 'CONSOLE_ERROR') {
+          setConsoleLogs(prev => [...prev, { type: 'error', text: e.data.text }]);
+        } else if (e.data.type === 'CONSOLE_WARN') {
+          setConsoleLogs(prev => [...prev, { type: 'warn', text: e.data.text }]);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   useEffect(() => {
     if (!htmlCode || !iframeRef.current) return;
-
+    setConsoleLogs([]); // Reset logs on reload or new code
 
     try {
-      // Bulletproof dark mode and Error Catcher injection
       let doc = htmlCode;
-      if (!doc.includes("window.onerror")) {
-        const injection = `
-          <style>
-            html, body { background-color: #0d0d0d !important; color: #e0e0e0 !important; margin: 0; padding: 0; font-family: monospace; height: 100%; overflow: hidden; }
-            #chart, .js-plotly-plot { background-color: transparent !important; }
-            .bg { fill: transparent !important; }
-            .error-box { margin: 20px; border: 1px solid #ff4444; padding: 15px; background: #2a0000; border-radius: 5px; color: #ff8888; }
-          </style>
-          <script>
-            window.onerror = function(msg, url, line, col, error) {
-              const errDiv = document.createElement('div');
-              errDiv.className = 'error-box';
-              errDiv.innerHTML = '<strong>⚠️ JavaScript Execution Error:</strong><br/><br/>' + msg + '<br/>Line: ' + line;
-              document.body.appendChild(errDiv);
-              return false;
+      
+      // Inject dark style, error listener, and console log capture script
+      const injection = `
+        <style>
+          html, body { background-color: #0d0d0d !important; color: #e0e0e0 !important; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; height: 100%; overflow: hidden; }
+          #chart, .js-plotly-plot { background-color: transparent !important; }
+          .bg { fill: transparent !important; }
+          .error-box { margin: 20px; border: 1px solid #ff4444; padding: 15px; background: #2a0000; border-radius: 5px; color: #ff8888; }
+        </style>
+        <script>
+          (function() {
+            const _log = console.log;
+            const _error = console.error;
+            const _warn = console.warn;
+            
+            console.log = function(...args) {
+              _log.apply(console, args);
+              window.parent.postMessage({ type: 'CONSOLE_LOG', text: args.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ') }, '*');
             };
-          </script>
-        `;
-        const lowerHtml = doc.toLowerCase();
-        if (lowerHtml.includes("</head>")) {
-          const index = lowerHtml.indexOf("</head>");
-          doc = doc.substring(0, index) + injection + doc.substring(index);
-        } else if (lowerHtml.includes("<body>")) {
-          const index = lowerHtml.indexOf("<body>");
-          doc = doc.substring(0, index + 6) + injection + doc.substring(index + 6);
-        } else {
-          doc = injection + doc;
-        }
+            console.error = function(...args) {
+              _error.apply(console, args);
+              window.parent.postMessage({ type: 'CONSOLE_ERROR', text: args.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ') }, '*');
+            };
+            console.warn = function(...args) {
+              _warn.apply(console, args);
+              window.parent.postMessage({ type: 'CONSOLE_WARN', text: args.map(x => typeof x === 'object' ? JSON.stringify(x) : String(x)).join(' ') }, '*');
+            };
+          })();
+
+          window.onerror = function(msg, url, line, col, error) {
+            window.parent.postMessage({ type: 'CONSOLE_ERROR', text: msg + ' (Line ' + line + ')' }, '*');
+            return false;
+          };
+        </script>
+      `;
+
+      const lowerHtml = doc.toLowerCase();
+      if (lowerHtml.includes("</head>")) {
+        const index = lowerHtml.indexOf("</head>");
+        doc = doc.substring(0, index) + injection + doc.substring(index);
+      } else if (lowerHtml.includes("<body>")) {
+        const index = lowerHtml.indexOf("<body>");
+        doc = doc.substring(0, index + 6) + injection + doc.substring(index + 6);
+      } else {
+        doc = injection + doc;
       }
 
-      // Write directly into the iframe's document — no blob URLs, no race conditions
+      // Write directly into the iframe's document
       const iframe = iframeRef.current;
       const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
       iframeDoc.open();
@@ -131,25 +167,32 @@ const ArtifactSandbox = ({ htmlCode }) => {
       console.error("Artifact write error:", err);
       setHasError(true);
     }
-  }, [htmlCode]);
+  }, [htmlCode, reloadKey]);
 
   if (hasError || !htmlCode) {
     return (
       <div className="artifact-error">
-        <span>⚠️</span> Failed to render artifact
+        <span>⚠️</span> Failed to render sandbox
       </div>
     );
   }
 
   return (
-    <div className={`artifact-container ${isExpanded ? "expanded" : ""}`}>
+    <div className={`artifact-container ${isExpanded ? "expanded" : ""}`} style={{ display: "flex", flexDirection: "column" }}>
       <div className="artifact-header">
         <div className="artifact-header-left">
           <div className="artifact-dot" />
-          <span className="artifact-label">Live Artifact</span>
+          <span className="artifact-label">Live Sandbox Simulation</span>
           <span className="artifact-badge">HTML/JS</span>
         </div>
         <div className="artifact-header-right">
+          <button
+            className="artifact-btn"
+            onClick={() => setReloadKey(prev => prev + 1)}
+            title="Reload simulation"
+          >
+            ↻
+          </button>
           <button
             className="artifact-btn"
             onClick={() => {
@@ -169,13 +212,98 @@ const ArtifactSandbox = ({ htmlCode }) => {
           </button>
         </div>
       </div>
-      <div className="artifact-iframe-wrap">
+      <div className="artifact-iframe-wrap" style={{ flexGrow: 1, position: "relative", display: "flex", flexDirection: "column" }}>
         <iframe
           ref={iframeRef}
           title="AI Artifact"
           className="artifact-iframe"
-          style={{ background: "#0d0d0d" }}
+          style={{ background: "#0d0d0d", flexGrow: 1, border: "none" }}
         />
+        
+        {/* Real-time Sandbox Console Overlay */}
+        <div 
+          className="sandbox-console-drawer"
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            borderTop: "1px solid rgba(139, 92, 246, 0.25)",
+            background: "rgba(10, 10, 15, 0.95)",
+            color: "#e0e0e0",
+            fontFamily: "monospace",
+            fontSize: "0.78rem",
+            zIndex: 10,
+            display: "flex",
+            flexDirection: "column",
+            backdropFilter: "blur(8px)"
+          }}
+        >
+          <div 
+            className="sandbox-console-header"
+            onClick={() => setShowConsole(!showConsole)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 14px",
+              cursor: "pointer",
+              background: "rgba(255,255,255,0.03)",
+              userSelect: "none"
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span>🛠️</span> Console Output {consoleLogs.length > 0 && `(${consoleLogs.length})`}
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {consoleLogs.length > 0 && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setConsoleLogs([]); }} 
+                  style={{
+                    background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: "0.75rem"
+                  }}
+                  title="Clear Console"
+                >
+                  Clear
+                </button>
+              )}
+              <span>{showConsole ? "▼" : "▲"}</span>
+            </div>
+          </div>
+          {showConsole && (
+            <div 
+              className="sandbox-console-body"
+              style={{
+                maxHeight: "150px",
+                overflowY: "auto",
+                padding: "8px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+                borderTop: "1px solid rgba(255,255,255,0.05)"
+              }}
+            >
+              {consoleLogs.length === 0 ? (
+                <span style={{ color: "#777", fontStyle: "italic" }}>No console output captured. Simulation running cleanly.</span>
+              ) : (
+                consoleLogs.map((log, idx) => (
+                  <div 
+                    key={idx} 
+                    style={{
+                      color: log.type === 'error' ? '#ff6666' : log.type === 'warn' ? '#ffcc44' : '#a0e0a0',
+                      borderLeft: `3px solid ${log.type === 'error' ? '#ff4444' : log.type === 'warn' ? '#ffaa00' : '#44bb44'}`,
+                      paddingLeft: "8px",
+                      whiteSpace: "pre-wrap",
+                      lineHeight: "1.4"
+                    }}
+                  >
+                    {log.text}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
