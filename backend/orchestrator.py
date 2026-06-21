@@ -777,14 +777,16 @@ class AgentOrchestrator:
         if not (cleaned.startswith("<") or "</" in cleaned or "<div" in cleaned.lower() or "<html" in cleaned.lower() or "<script" in cleaned.lower()):
             return False, "Not a valid HTML document (plain text or refusal detected)."
 
-        # Find all script blocks in HTML
-        scripts = re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', html_code)
-        if not scripts:
-            return True, ""
+        # Find all INLINE script blocks (exclude those with src=)
+        scripts = re.findall(r'<script\b(?![^>]*src=)[^>]*>([\s\S]*?)</script>', html_code, flags=re.IGNORECASE)
+        js_code = "\n".join(scripts).strip()
+        
+        if not js_code:
+            return False, "No inline JavaScript logic found. You MUST write the actual simulation logic inside a <script> tag."
             
-        js_code = "\n".join(scripts)
-        if not js_code.strip():
-            return True, ""
+        # Ensure the script actually attempts to render something to prevent blank screens
+        if not any(kw in js_code for kw in ['Plotly.newPlot', 'THREE.', 'getContext', 'document.getElementById', 'document.querySelector']):
+            return False, "The JavaScript logic does not attempt to render anything. You MUST use Plotly.newPlot, THREE.js, or Canvas/DOM APIs to display the simulation."
 
         # Prepend mocks for DOM, Window, THREE, and Plotly to Node.js context.
         # This will bypass typical browser-only ReferenceErrors while letting actual syntax/API bugs throw errors.
