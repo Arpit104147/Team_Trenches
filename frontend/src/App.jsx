@@ -577,6 +577,7 @@ export default function App() {
       abortController.abort();
       setIsGenerating(false);
       setAbortController(null);
+      setCurrentStream("");
     }
   };
 
@@ -716,6 +717,9 @@ export default function App() {
           } else if (data.type === "status") {
             currentLogsRef.current = [...currentLogsRef.current, data.message];
             setCurrentLogs(prev => [...prev, data.message]);
+          } else if (data.type === "error") {
+            setHistory(prev => [...prev, { type: "ai", text: "Error: " + data.message }]);
+            setIsGenerating(false);
           }
         } catch {}
       }
