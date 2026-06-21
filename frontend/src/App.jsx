@@ -23,26 +23,35 @@ const useKatexReady = () => {
    ═══════════════════════════════════════════════════ */
 const PlotlyChart = ({ jsonStr }) => {
   const chartRef = useRef(null);
-  const plotted = useRef(false);
 
   useEffect(() => {
-    if (!chartRef.current || plotted.current) return;
+    if (!chartRef.current) return;
     try {
       const fig = JSON.parse(jsonStr);
+      
+      // Clear fixed width and height from backend to let CSS control size
+      if (fig.layout) {
+        delete fig.layout.width;
+        delete fig.layout.height;
+      }
+
       const layout = {
         ...fig.layout,
+        autosize: true,
         template: "plotly_dark",
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
         font: { color: "#e0e0e0" },
-        margin: { l: 0, r: 0, t: 40, b: 0 },
+        margin: { l: 20, r: 20, t: 40, b: 20 },
       };
-      window.Plotly.newPlot(chartRef.current, fig.data, layout, {
+
+      const data = Array.isArray(fig.data) ? fig.data : [fig.data];
+
+      window.Plotly.react(chartRef.current, data, layout, {
         responsive: true,
         displayModeBar: true,
         displaylogo: false,
       });
-      plotted.current = true;
     } catch (err) {
       console.error("Plotly render error:", err);
     }

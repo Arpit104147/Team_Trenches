@@ -723,7 +723,7 @@ class AgentOrchestrator:
             "Output ONLY the code in ```python``` blocks.\n\n"
             f"To verify:\n{hypothesis[:2000]}"
         )
-        test_response = self._call_model(model, playground_prompt, max_tokens=1024, temperature=0.1)
+        test_response = self._call_model(model, playground_prompt, max_tokens=4096, temperature=0.1)
         test_code = Sandbox.extract_code(test_response)
         success, output = self.sandbox.execute(test_code, language='python')
         verified = success and "VERIFIED" in output
@@ -1005,10 +1005,13 @@ class AgentOrchestrator:
             viz_success, viz_output = self.sandbox.execute(viz_extract, language='python')
 
         def _strip_sandbox_prefix(text):
-            """Remove the 🔒 [Restricted Sandbox] prefix from sandbox output."""
+            """Remove sandbox prefixes from sandbox output."""
             if not text:
                 return text
-            for prefix in ["🔒 [Restricted Sandbox]\n", "🔒 [Restricted Sandbox]"]:
+            for prefix in [
+                "🔒 [Restricted Sandbox]\n", "🔒 [Restricted Sandbox]",
+                "⚠️ [Unrestricted Fallback]\n", "⚠️ [Unrestricted Fallback]"
+            ]:
                 if text.startswith(prefix):
                     return text[len(prefix):]
             return text
@@ -1157,8 +1160,7 @@ class AgentOrchestrator:
             oc_ctx = min(4096, self.context_length, ctx_cap)
 
         # gen_tokens must leave room for the prompt inside the context window
-        # Use at most half the context for generation, capped at 4096
-        gen_tokens = min(ds_ctx // 2, 4096)
+        gen_tokens = 4096
         
         # Adaptive Temperature Scaling
         logic_temp = 0.6  # High for creative logic problem solving

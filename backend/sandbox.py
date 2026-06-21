@@ -432,6 +432,18 @@ class Sandbox:
         - Layer 2: Restricted builtins (no open/exec/eval/import of OS modules)
         - Layer 3: Resource limits (RAM/CPU/disk caps prevent DoS attacks)
         """
+        # Pre-check for syntax/truncation errors
+        try:
+            import ast
+            ast.parse(code)
+        except SyntaxError as e:
+            return False, (
+                f"SyntaxError: {e.msg} at line {e.lineno}.\n"
+                f"CRITICAL: Your code was likely truncated (cut off mid-sentence) or contains unbalanced braces/quotes.\n"
+                f"Ensure all strings, functions, quotes, and brackets are fully closed.\n"
+                f"Write shorter, more concise code if necessary to avoid hitting output limits."
+            )
+
         # Write the AI's code to a temp file
         code_file = tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False)
         code_file.write(code)
