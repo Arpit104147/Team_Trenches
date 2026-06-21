@@ -31,6 +31,12 @@ LOOP_PATTERNS = [
 # ── Language Detection Heuristics ────────────────────────────────────────
 # Strong indicators for each supported language
 LANG_SIGNATURES = {
+    'python': {
+        'strong': [r'^\s*import\s+\w+', r'^\s*from\s+\w+\s+import', r'def\s+\w+\s*\(', r'if\s+__name__\s*==\s*[\'"]__main__[\'"]', r'print\s*\(.*\)'],
+        'ext': '.py',
+        'compile': None,
+        'run': [sys.executable, '{src}'],
+    },
     'c': {
         'strong': [r'#include\s*<\w+\.h>', r'int\s+main\s*\(', r'printf\s*\(', r'scanf\s*\(', r'malloc\s*\(', r'free\s*\('],
         'ext': '.c',

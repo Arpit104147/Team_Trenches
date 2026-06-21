@@ -725,7 +725,7 @@ class AgentOrchestrator:
         )
         test_response = self._call_model(model, playground_prompt, max_tokens=1024, temperature=0.1)
         test_code = Sandbox.extract_code(test_response)
-        success, output = self.sandbox.execute(test_code)
+        success, output = self.sandbox.execute(test_code, language='python')
         verified = success and "VERIFIED" in output
         return verified, output, test_code
 
@@ -1002,7 +1002,7 @@ class AgentOrchestrator:
         if has_python:
             if status_callback:
                 status_callback("Rendering 3D Visualization...", "info", "opencode", 98)
-            viz_success, viz_output = self.sandbox.execute(viz_extract)
+            viz_success, viz_output = self.sandbox.execute(viz_extract, language='python')
 
         def _strip_sandbox_prefix(text):
             """Remove the 🔒 [Restricted Sandbox] prefix from sandbox output."""
@@ -1047,7 +1047,7 @@ class AgentOrchestrator:
             
             has_python = "import" in viz_extract or "def " in viz_extract or "fig" in viz_extract
             if has_python:
-                viz_success, viz_output = self.sandbox.execute(viz_extract)
+                viz_success, viz_output = self.sandbox.execute(viz_extract, language='python')
             else:
                 viz_success = False
                 viz_output = "Model failed to output a valid code block."
