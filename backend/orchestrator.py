@@ -1155,17 +1155,27 @@ class AgentOrchestrator:
         """Check if the task needs 3D visualization and generate it if so."""
         if status_callback:
             status_callback("Checking 3D Visualization Eligibility...", "info", "router", 90)
-        gate_prompt = (
-            "Does this task involve mathematical graphing, data plotting, 3D matrices, physics/chemical equations, "
-            "or biological/molecular 3D models (like DNA helices, cellular structures, proteins, or chemical bonds)? "
-            "Game development (pygame, tkinter, GUI apps) does NOT count. "
-            "Reply ONLY 'YES' or 'NO'.\n\n"
-            f"Query: {prompt[:500]}"
-        )
-        router_llm = self._get_model("router", required_ctx=router_ctx)
-        is_3d = self._call_model(router_llm, gate_prompt, max_tokens=10, temperature=0.1)
 
-        if "YES" not in str(is_3d).upper():
+        # Rule-based auto-match for graphing/visualization tasks to ensure 100% reliability
+        auto_keywords = ["3d", "plotly", "three.js", "visualize", "visualization", "plot", "graph", "simulation", "simulate", "trajectory", "vector field"]
+        prompt_lower = prompt.lower()
+        is_3d_flag = False
+        if any(kw in prompt_lower for kw in auto_keywords):
+            is_3d_flag = True
+        else:
+            gate_prompt = (
+                "Does this task involve mathematical graphing, data plotting, 3D matrices, physics/chemical equations, "
+                "or biological/molecular 3D models (like DNA helices, cellular structures, proteins, or chemical bonds)? "
+                "Game development (pygame, tkinter, GUI apps) does NOT count. "
+                "Reply ONLY 'YES' or 'NO'.\n\n"
+                f"Query: {prompt[:500]}"
+            )
+            router_llm = self._get_model("router", required_ctx=router_ctx)
+            is_3d = self._call_model(router_llm, gate_prompt, max_tokens=10, temperature=0.1)
+            if "YES" in str(is_3d).upper():
+                is_3d_flag = True
+
+        if not is_3d_flag:
             return ""
 
         coder_llm = self._get_model("opencode", required_ctx=oc_ctx)
