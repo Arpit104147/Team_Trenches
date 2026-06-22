@@ -958,6 +958,11 @@ class AgentOrchestrator:
 
     def _is_playground_applicable(self, router_llm, prompt):
         """Check if reasoning can be verified via Python sandbox."""
+        auto_keywords = ["solve", "calculate", "equations of motion", "scipy", "numpy", "solve_ivp", "assert", "integrate", "trajectory", "physics", "math", "verify", "verification script"]
+        prompt_lower = prompt.lower()
+        if any(kw in prompt_lower for kw in auto_keywords):
+            return True
+
         p = (
             "Can this concept be verified using a Python script? "
             "Math/physics equations, logic puzzles, statistical claims = YES. "
@@ -1834,9 +1839,8 @@ class AgentOrchestrator:
             "7. If you cite a formula, state where it comes from (Newton's 2nd law, etc.).\n"
             "8. Complete ALL derivations fully — do not skip steps or say 'it can be shown that'.\n"
             "9. If uncertain about a specific value or fact, say so explicitly rather than guessing.\n"
-            "10. IMPORTANT: If 'Relevant past experience' is provided, use it ONLY for structure, formulas, or syntax logic. "
-            "Do NOT copy the specific numeric values, initial conditions, or dimensions from the past experience if they differ "
-            "from the User Query. Always prioritize the User Query's exact variables, launch angles, velocities, and parameters.\n"
+            "10. IMPORTANT: If 'Relevant past experience' or 'Web Context' is provided, use it ONLY for structure, formulas, or syntax logic. "
+            "Do NOT copy the physical system or specific numeric values if they differ from the User Query (e.g., if the user asks for a proton in E and B fields, do NOT solve the Lorenz Attractor described in the context). Always prioritize the User Query's exact physics system and exact variables.\n"
             "11. THINKING CONSTRAINT: Be concise, structured, and focused in your thinking thoughts. Avoid looping or repeating the "
             "same mathematical derivations. State your reasoning path clearly and proceed directly to the solution once verified."
         )
