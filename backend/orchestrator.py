@@ -625,8 +625,9 @@ class AgentOrchestrator:
     def _crunch_prompt(self, prompt, target_model, prompt_token_budget, status_callback=None, router_llm=None):
         """Compresses a massive prompt using semantic line boundaries and fast summarization."""
         # Ensure router is loaded first to use its tokenizer
+        # Use small context for summarization — avoid wasteful VRAM allocation
         if router_llm is None:
-            router_llm = self._get_model("router", required_ctx=8192)
+            router_llm = self._get_model("router", required_ctx=2048)
 
         # Precise Token Estimation
         if hasattr(router_llm, "tokenize"):
@@ -1403,7 +1404,7 @@ class AgentOrchestrator:
     def _coding_pipeline(self, prompt, enriched_prompt, router_llm,
                          router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         logic_temp = 0.6
-        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback)
+        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback, router_llm=router_llm)
 
         # ── Retrieve relevant past experiences from Memory/RAG ────────────
         past_experience = self.memory.recall(prompt, n_results=2)
@@ -1625,7 +1626,7 @@ class AgentOrchestrator:
     # =====================================================================
     def _reasoning_pipeline(self, prompt, enriched_prompt, router_llm,
                             router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
-        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback)
+        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback, router_llm=router_llm)
 
         # ── Retrieve relevant past experiences from Memory/RAG ────────────
         past_experience = self.memory.recall(prompt, n_results=2)
