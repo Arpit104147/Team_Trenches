@@ -1867,13 +1867,7 @@ class AgentOrchestrator:
                         self.memory.save(prompt, ds_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, ds_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        verification_block = (
-                            f"\n\n### Computational Verification\n"
-                            f"```python\n{test_code}\n```\n\n"
-                            f"**Verification Output:**\n"
-                            f"```text\n{pg_out}\n```"
-                        )
-                        return f"### Verified Answer\n{ds_answer}{verification_block}{viz}"
+                        return f"### Verified Answer\n{ds_answer}{viz}"
 
                     # DeepSeek-R1-7B corrects its own draft (zero model swap latency)
                     if status_callback:
@@ -1892,13 +1886,7 @@ class AgentOrchestrator:
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        verification_block = (
-                            f"\n\n### Computational Verification\n"
-                            f"```python\n{vibe_test_code}\n```\n\n"
-                            f"**Verification Output:**\n"
-                            f"```text\n{vibe_pg_out}\n```"
-                        )
-                        return f"### Verified Answer\n{vibe_answer}{verification_block}{viz}"
+                        return f"### Verified Answer\n{vibe_answer}{viz}"
                     # Don't let ds_safe grow unboundedly — cap the appended errors
                     error_summary = pg_out[:300]
                     if len(ds_safe) + len(error_summary) < (ds_ctx - gen_tokens - 200) * 3:
@@ -1971,13 +1959,7 @@ class AgentOrchestrator:
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        verification_block = (
-                            f"\n\n### Computational Verification (Emergency Healed)\n"
-                            f"```python\n{vibe_test_code}\n```\n\n"
-                            f"**Verification Output:**\n"
-                            f"```text\n{vibe_pg_out}\n```"
-                        )
-                        return f"### Verified Answer\n{vibe_answer}{verification_block}{viz}"
+                        return f"### Verified Answer\n{vibe_answer}{viz}"
             except Exception as es:
                 print(f"Emergency reasoning search recovery failed: {es}")
 
@@ -1989,13 +1971,7 @@ class AgentOrchestrator:
                 status_callback("Max retries reached. Returning best effort.", "warning", "system", 98)
             router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
             viz = self._check_3d_gate(prompt, final_ans, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-            verification_block = (
-                f"\n\n### Computational Verification (Failed)\n"
-                f"```python\n{final_test}\n```\n\n"
-                f"**Verification Output:**\n"
-                f"```text\n{final_out}\n```"
-            )
-            return f"### Best Effort Answer\n{final_ans}{verification_block}{viz}"
+            return f"### Verified Answer\n{final_ans}{viz}"
 
         else:
             # ── Standard LLM Debate (non-testable reasoning) ─────────────
