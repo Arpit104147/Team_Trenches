@@ -977,7 +977,7 @@ class AgentOrchestrator:
         # Redirect all playground script writing to the Router to prevent DeepSeek-R1 thinking tokens
         # from depleting the context window and causing code truncation, or VibeThinker syntax errors.
         if purpose == "reasoning" or model_key in ["vibethinker", "deepseek_r1"]:
-            coder_model = self._get_model("router", required_ctx=2048)
+            coder_model = self._get_model("router", required_ctx=8192)
 
         prompt_context = ""
         if original_prompt:
@@ -990,10 +990,10 @@ class AgentOrchestrator:
             "2. You MUST strictly adhere to ALL constraints in the original query (e.g. air drag, specific angles, 3D vs 2D). DO NOT SIMPLIFY the physics.\n"
             "3. You MUST use math.isclose(a, b, rel_tol=1e-3) for ANY floating point comparisons. NEVER use == for floats.\n"
             "4. Check at least 2 different test cases or boundary conditions\n"
-            "5. Check dimensional consistency (units make sense)\n"
-            "5. Use assert statements with descriptive messages\n"
-            "6. Print 'VERIFIED' as the LAST line ONLY if ALL assertions pass\n"
-            "7. Do NOT print 'VERIFIED' if any assertion fails\n\n"
+            "5. Check dimensional consistency (units make sense). If using unit libraries like pint, perform all unit conversions OUTSIDE the differential solver loops/functions (never instantiate or convert quantities inside solve_ivp/odeint callbacks as it causes type-casting exceptions and severe performance slowdowns).\n"
+            "6. Use assert statements with descriptive messages\n"
+            "7. Print 'VERIFIED' as the LAST line ONLY if ALL assertions pass\n"
+            "8. Do NOT print 'VERIFIED' if any assertion fails\n\n"
             "You have access to these scientific tools:\n"
             "  - math, cmath           → Core math operations, trigonometry, constants\n"
             "  - numpy                 → Arrays, linear algebra, matrix operations, statistics\n"
