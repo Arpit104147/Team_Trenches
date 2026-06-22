@@ -980,9 +980,10 @@ class AgentOrchestrator:
             f"Write a Python script (max 50 lines) that {'tests this code logic' if purpose == 'logic' else 'verifies this reasoning'}.\n\n"
             "VERIFICATION RULES:\n"
             "1. Test the CORE claim/formula with concrete numerical values\n"
-            "2. You MUST use math.isclose(a, b, rel_tol=1e-3) for ANY floating point comparisons. NEVER use == for floats.\n"
-            "3. Check at least 2 different test cases or boundary conditions\n"
-            "4. Check dimensional consistency (units make sense)\n"
+            "2. You MUST strictly adhere to ALL constraints in the original query (e.g. air drag, specific angles, 3D vs 2D). DO NOT SIMPLIFY the physics.\n"
+            "3. You MUST use math.isclose(a, b, rel_tol=1e-3) for ANY floating point comparisons. NEVER use == for floats.\n"
+            "4. Check at least 2 different test cases or boundary conditions\n"
+            "5. Check dimensional consistency (units make sense)\n"
             "5. Use assert statements with descriptive messages\n"
             "6. Print 'VERIFIED' as the LAST line ONLY if ALL assertions pass\n"
             "7. Do NOT print 'VERIFIED' if any assertion fails\n\n"
@@ -1517,7 +1518,7 @@ class AgentOrchestrator:
         if past_experience:
             ds_safe += past_experience
 
-        max_resets = 1
+        max_resets = 2
         lessons = ""
         all_errors = []
 
@@ -1797,7 +1798,7 @@ class AgentOrchestrator:
 
         if use_playground:
             # ── Playground-Verified Reasoning (with Nuclear Reset) ────────
-            max_resets = 1
+            max_resets = 2
             lessons = ""
             all_errors = []
 
