@@ -226,6 +226,60 @@ class AgentOrchestrator:
         except Exception:
             return None
 
+    def _get_dynamic_context_ceiling(self, model_key):
+        """Dynamically computes the safe context ceiling for a specific model based on actual free VRAM and free RAM.
+        Takes into account the EVM hot-swap (unloading other models) and the size of the target model."""
+        hard_limit = getattr(self, 'max_auto_ctx', 8192)
+        
+        # 1. System RAM Constraints
+        free_ram = self._get_ram_free_gb()
+        if free_ram < 2.0:
+            ram_limit = 1024
+        elif free_ram < 4.0:
+            ram_limit = 2048
+        elif free_ram < 8.0:
+            ram_limit = 4096
+        elif free_ram < 16.0:
+            ram_limit = 8192
+        else:
+            ram_limit = hard_limit
+
+        # 2. GPU VRAM Constraints (Theoretical Free VRAM after EVM Swap)
+        vram_limit = hard_limit
+        if torch and torch.cuda.is_available():
+            try:
+                free_vram = self._get_vram_free_gb(0)
+                if free_vram is not None:
+                    # In EVM mode, if other models are loaded, their VRAM will be freed.
+                    # Calculate VRAM that will be freed by unloading other models
+                    freed_by_evm = 0.0
+                    if getattr(self, 'kaggle_hotswap_mode', False):
+                        for mk, model_obj in self.loaded_models.items():
+                            if mk != model_key:
+                                freed_by_evm += self._estimate_model_size_gb(mk)
+                    
+                    target_model_size = self._estimate_model_size_gb(model_key)
+                    # Theoretical free VRAM after swap and load
+                    theo_free_vram = free_vram + freed_by_evm - target_model_size
+                    
+                    # Deduct overhead for model execution (computational graph, activations)
+                    usable_kv_vram = theo_free_vram - 1.5
+                    if usable_kv_vram < 0:
+                        usable_kv_vram = 0.5
+                    
+                    # 1 token ≈ 0.13 MB of KV cache (FP16 8B model)
+                    calculated_limit = int((usable_kv_vram * 1024) / 0.13)
+                    # Round down to nearest multiple of 1024
+                    calculated_limit = (calculated_limit // 1024) * 1024
+                    vram_limit = max(1024, min(hard_limit, calculated_limit))
+            except Exception:
+                pass
+                
+        # Sane bottleneck of RAM, VRAM, and hard limit
+        dynamic_cap = min(hard_limit, ram_limit, vram_limit)
+        dynamic_cap = max(1024, dynamic_cap)
+        return dynamic_cap
+
     def _get_sysfs_gpu_vram(self):
         """Read AMD/Intel GPU VRAM via Linux sysfs. Returns list of (free_gb, total_gb, card_name)."""
         import glob
@@ -1349,17 +1403,26 @@ class AgentOrchestrator:
             if web_context else f"Current System Date/Time: {current_date}\n\nUser Query:\n{prompt}"
         )
 
-        # ── Dynamic Context Sizing (VRAM-aware) ────────────────────────
+        # ── Dynamic Context Sizing (RAM/VRAM-aware) ────────────────────
         est_tokens = len(enriched_prompt) // 4
-        ctx_cap = self.max_auto_ctx  # VRAM-safe ceiling (4096 on P100, 8192 on larger GPUs)
+        
+        # Calculate dynamic ceilings for each model individually based on post-swap free VRAM & RAM
+        router_ctx_cap = self._get_dynamic_context_ceiling("router")
+        ds_ctx_cap = self._get_dynamic_context_ceiling("deepseek_r1")
+        oc_ctx_cap = self._get_dynamic_context_ceiling("opencode")
+        
         if self.context_length == 0:
-            router_ctx = min(ctx_cap, est_tokens + self.max_tokens)
-            ds_ctx = min(ctx_cap, est_tokens + self.max_tokens)
-            oc_ctx = min(ctx_cap, 8192)
+            router_ctx = min(router_ctx_cap, est_tokens + self.max_tokens)
+            ds_ctx = min(ds_ctx_cap, est_tokens + self.max_tokens)
+            oc_ctx = min(oc_ctx_cap, 8192)
         else:
-            router_ctx = min(self.context_length, ctx_cap)
-            ds_ctx = min(self.context_length, ctx_cap)
-            oc_ctx = min(8192, self.context_length, ctx_cap)
+            router_ctx = min(self.context_length, router_ctx_cap)
+            ds_ctx = min(self.context_length, ds_ctx_cap)
+            oc_ctx = min(8192, self.context_length, oc_ctx_cap)
+            
+        # Ensure context sizing prints to log for easier transparency
+        if getattr(self, 'kaggle_hotswap_mode', False):
+            print(f"📐 DMA (EVM Context Sizing): router_ctx={router_ctx}, ds_ctx={ds_ctx}, oc_ctx={oc_ctx}")
 
         # gen_tokens must leave room for the prompt inside the context window
         gen_tokens = 4096
