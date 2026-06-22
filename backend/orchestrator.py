@@ -1614,15 +1614,16 @@ class AgentOrchestrator:
                 viz = self._check_3d_gate(prompt, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                 return f"### Logic Plan (Verified)\n{compiled_plan}\n\n### Execution Output\n{output}{viz}\n\n### Code\n```python\n{code}\n```"
 
-            # ── Phase 6: Deep Escalation (VibeThinker — stronger prompt) ─
+            # ── Phase 6: Deep Escalation (DeepSeek-R1 — rewrite script) ──
             if status_callback:
-                status_callback("Deep Escalation: VibeThinker rewriting...", "warning", "vibethinker", 80)
+                status_callback("Deep Escalation: DeepSeek-R1 rewriting...", "warning", "deepseek_r1", 80)
+            ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
             esc_p = (
                 f"Code failed TWICE. You MUST fix it.\nPlan:\n{compiled_plan[:1500]}\n"
                 f"Code:\n{code[:2000]}\nError:\n{output[:800]}\n"
                 f"Rewrite the ENTIRE script from scratch in ```python```. Think step by step."
             )
-            esc_resp = self._strip_thinking(self._call_model(vibe_llm, esc_p, gen_tokens, gen_temp, system_prompt=coder_sys))
+            esc_resp = self._strip_thinking(self._call_model(ds_llm, esc_p, gen_tokens, gen_temp, system_prompt=coder_sys))
             if "```" in esc_resp:
                 code = Sandbox.extract_code(esc_resp)
                 ok, output = self.sandbox.execute(code)
@@ -1637,8 +1638,9 @@ class AgentOrchestrator:
             all_errors.append(f"Round {reset+1}: {output[:500]}")
             if reset < max_resets - 1:
                 if status_callback:
-                    status_callback(f"Nuclear Reset: Extracting lessons...", "error", "vibethinker", 85)
-                lessons = self._extract_failure_lessons(vibe_llm, compiled_plan, "\n".join(all_errors))
+                    status_callback(f"Nuclear Reset: Extracting lessons...", "error", "deepseek_r1", 85)
+                ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+                lessons = self._extract_failure_lessons(ds_llm, compiled_plan, "\n".join(all_errors))
 
         # All resets exhausted -> Emergency Web Search Healing fallback
         if status_callback:
@@ -1648,7 +1650,13 @@ class AgentOrchestrator:
             error_query = error_lines[-1] if error_lines else output[:100]
             if len(error_query) > 120:
                 error_query = error_query[-120:]
-            search_term = f"python {error_query}"
+            
+            # Construct a highly relevant search term combining prompt keywords and error
+            clean_prompt_query = " ".join([word for word in prompt.split() if len(word) > 3][:8])
+            search_term = f"{clean_prompt_query} {error_query}"
+            if len(search_term) > 150:
+                search_term = search_term[:150]
+
             if status_callback:
                 status_callback(f"Searching: '{search_term}'...", "info", "system", 92)
             web_results = self.web_search.search(search_term, max_results=2)
@@ -1657,8 +1665,8 @@ class AgentOrchestrator:
                 emergency_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_results])
             if emergency_context:
                 if status_callback:
-                    status_callback("Emergency context acquired. Rewriting script...", "info", "vibethinker", 95)
-                vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
+                    status_callback("Emergency context acquired. Rewriting script...", "info", "deepseek_r1", 95)
+                ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
                 emergency_prompt = (
                     f"The previous attempts failed with the following traceback:\n"
                     f"{output[:800]}\n\n"
@@ -1668,13 +1676,13 @@ class AgentOrchestrator:
                     f"Original plan:\n{compiled_plan[:1500]}\n\n"
                     f"Output the complete script in a ```python``` block."
                 )
-                esc_resp = self._strip_thinking(self._call_model(vibe_llm, emergency_prompt, gen_tokens, gen_temp, system_prompt=coder_sys))
+                esc_resp = self._strip_thinking(self._call_model(ds_llm, emergency_prompt, gen_tokens, gen_temp, system_prompt=coder_sys))
                 if "```" in esc_resp:
                     code = Sandbox.extract_code(esc_resp)
                     ok, output = self.sandbox.execute(code)
                     if ok:
                         if status_callback:
-                            status_callback("Emergency Search Healing SUCCESSFUL!", "success", "vibethinker", 100)
+                            status_callback("Emergency Search Healing SUCCESSFUL!", "success", "deepseek_r1", 100)
                         self.memory.save(prompt, code)
                         self.memory.save_mistake(prompt, failed_code, failed_error, code)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
@@ -1767,19 +1775,18 @@ class AgentOrchestrator:
                         )
                         return f"### Verified Answer\n{ds_answer}{verification_block}{viz}"
 
-                    # VibeThinker tries to fix
+                    # DeepSeek-R1-7B corrects its own draft (zero model swap latency)
                     if status_callback:
-                        status_callback(f"VibeThinker correcting reasoning (Attempt {rnd+1}/3)...", "warning", "vibethinker", 45 + rnd*12)
-                    vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
+                        status_callback(f"DeepSeek-R1 correcting reasoning (Attempt {rnd+1}/3)...", "warning", "deepseek_r1", 45 + rnd*12)
                     vibe_p = (
                         f"This answer failed verification.\nAnswer:\n{ds_answer[:2000]}\n"
                         f"Error:\n{pg_out[:1000]}\nProvide a corrected, complete answer."
                     )
-                    vibe_answer = self._strip_thinking(self._call_model(vibe_llm, vibe_p, gen_tokens, gen_temp, system_prompt=reasoning_sys))
-                    v2, vibe_pg_out, vibe_test_code = self._run_playground(vibe_llm, vibe_answer, "reasoning", model_key="vibethinker")
+                    vibe_answer = self._strip_thinking(self._call_model(ds_llm, vibe_p, gen_tokens, gen_temp, system_prompt=reasoning_sys))
+                    v2, vibe_pg_out, vibe_test_code = self._run_playground(ds_llm, vibe_answer, "reasoning", model_key="deepseek_r1")
                     if v2:
                         if status_callback:
-                            status_callback("VibeThinker's correction VERIFIED!", "success", "vibethinker", 80)
+                            status_callback("DeepSeek-R1's correction VERIFIED!", "success", "deepseek_r1", 80)
                         self.memory.save(prompt, vibe_answer)
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
@@ -1801,9 +1808,9 @@ class AgentOrchestrator:
                 all_errors.append(f"Reset {reset+1}: {pg_out[:500]}")
                 if reset < max_resets - 1:
                     if status_callback:
-                        status_callback("Nuclear Reset: Extracting lessons from failures...", "error", "vibethinker", 85)
-                    vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
-                    lessons = self._extract_failure_lessons(vibe_llm, ds_answer, "\n".join(all_errors))
+                        status_callback("Nuclear Reset: Extracting lessons from failures...", "error", "deepseek_r1", 85)
+                    ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+                    lessons = self._extract_failure_lessons(ds_llm, ds_answer, "\n".join(all_errors))
 
             # All resets exhausted -> Emergency Web Search Healing fallback
             if status_callback:
@@ -1830,8 +1837,8 @@ class AgentOrchestrator:
                     emergency_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_results])
                 if emergency_context:
                     if status_callback:
-                        status_callback("Emergency context acquired. Final reasoning correction...", "info", "vibethinker", 95)
-                    vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
+                        status_callback("Emergency context acquired. Final reasoning correction...", "info", "deepseek_r1", 95)
+                    ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
                     emergency_prompt = (
                         f"The reasoning explanation failed sandbox verification with the error:\n"
                         f"{pg_out[:500]}\n\n"
@@ -1840,11 +1847,11 @@ class AgentOrchestrator:
                         f"Correct the derivation/calculation to fix this issue, and formulate the final detailed explanation.\n"
                         f"Failed Draft:\n{ds_answer[:1500]}"
                     )
-                    vibe_answer = self._strip_thinking(self._call_model(vibe_llm, emergency_prompt, gen_tokens, gen_temp, system_prompt=reasoning_sys))
-                    v2, vibe_pg_out, vibe_test_code = self._run_playground(vibe_llm, vibe_answer, "reasoning", model_key="vibethinker")
+                    vibe_answer = self._strip_thinking(self._call_model(ds_llm, emergency_prompt, gen_tokens, gen_temp, system_prompt=reasoning_sys))
+                    v2, vibe_pg_out, vibe_test_code = self._run_playground(ds_llm, vibe_answer, "reasoning", model_key="deepseek_r1")
                     if v2:
                         if status_callback:
-                            status_callback("Emergency Search Healing SUCCESSFUL!", "success", "vibethinker", 100)
+                            status_callback("Emergency Search Healing SUCCESSFUL!", "success", "deepseek_r1", 100)
                         self.memory.save(prompt, vibe_answer)
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
