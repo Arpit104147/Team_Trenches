@@ -149,7 +149,19 @@ class AgentOrchestrator:
                     # Activate if we are in Kaggle or have enough free memory (RAM usage < 25%)
                     if is_kaggle or ram_percent < 25.0:
                         self.kaggle_hotswap_mode = True
-                        print("🚀 DMA: Activated Kaggle dGPU Hot-Swap Mode! VRAM multiplexing enabled.")
+                        # ── EVM Resource Override ──────────────────────────
+                        # In EVM mode, only ONE model is ever in VRAM at a time,
+                        # and System RAM is a dedicated holding area.
+                        # Safe to use 90-95% of all resources.
+                        # RAM:  keep only 5% free (~1.5 GB on 31 GB) for OS kernel
+                        # VRAM: keep only 5% free (~0.8 GB on 16 GB) for CUDA runtime
+                        self.ram_safety_gb = round(self.total_ram_gb * 0.05, 1)
+                        self.vram_safety_gb = round(total_vram_gb * 0.05, 1)
+                        print("🚀 DMA: Activated EVM (Enterprise VRAM Multiplexing)!")
+                        print(f"   ⚡ EVM Override: RAM threshold = {self.ram_safety_gb:.1f} GB "
+                              f"(95% usable of {self.total_ram_gb:.0f} GB)")
+                        print(f"   ⚡ EVM Override: VRAM threshold = {self.vram_safety_gb:.1f} GB "
+                              f"(95% usable of {total_vram_gb:.0f} GB)")
                     else:
                         print(f"⚠️ DMA: Hot-Swap skipped — RAM usage too high ({ram_percent:.1f}%)")
                         
