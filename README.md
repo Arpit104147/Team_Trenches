@@ -146,6 +146,15 @@ Running 7B+ models on iGPUs is notoriously unstable. These fixes are baked into 
 - **`corrupted size vs. prev_size` heap crash**: Fixed via the DMA iGPU Guard which prevents simultaneous large allocations
 - **Float16 kernel failures**: Models fall back to `float32` on XPU with IPEX optimization applied automatically
 
+### Enterprise VRAM Multiplexing (EVM)
+This codebase features **Enterprise VRAM Multiplexing (EVM)**, a hardware-aware hot-swap technology designed for environments where System RAM far exceeds discrete GPU VRAM (e.g., Kaggle instances). 
+
+**Minimum Hardware to Automatically Activate EVM:**
+- **System RAM:** ≥ 24 GB
+- **GPU VRAM:** ≤ 16 GB (Discrete NVIDIA/CUDA GPU)
+
+When the Orchestrator detects this specific hardware profile, EVM activates autonomously. It loads the entire 5-model Swarm into the host System RAM. During generation, it aggressively hot-swaps models one-by-one via the PCIe bus into the GPU, forcefully evicting dormant agents. This guarantees the active reasoning model (like DeepSeek-R1) commands 100% of the VRAM for its massive KV Cache, effectively neutralizing Out-Of-Memory crashes during deep chain-of-thought processing.
+
 ---
 
 ## 🔑 Key Features In Detail
