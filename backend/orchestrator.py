@@ -145,9 +145,13 @@ class AgentOrchestrator:
                 # If System RAM is massive (>24GB) but VRAM is restricted (<=16GB)
                 if self.total_ram_gb >= 24 and total_vram_gb <= 16:
                     ram_percent = psutil.virtual_memory().percent
-                    if ram_percent < 15.0:  # Fresh environment
+                    is_kaggle = os.environ.get('KAGGLE_KERNEL_RUN_TYPE') is not None or os.path.exists('/kaggle')
+                    # Activate if we are in Kaggle or have enough free memory (RAM usage < 25%)
+                    if is_kaggle or ram_percent < 25.0:
                         self.kaggle_hotswap_mode = True
                         print("🚀 DMA: Activated Kaggle dGPU Hot-Swap Mode! VRAM multiplexing enabled.")
+                    else:
+                        print(f"⚠️ DMA: Hot-Swap skipped — RAM usage too high ({ram_percent:.1f}%)")
                         
                 print(f"🎮 DMA: NVIDIA GPU detected — {total_vram_gb:.0f} GB VRAM, "
                       f"evict threshold = {self.vram_safety_gb:.1f} GB free")
@@ -694,7 +698,10 @@ class AgentOrchestrator:
                             break
                     
                 prompt = '\n'.join(start_lines) + "\n...[TRUNCATED FOR CONTEXT LIMIT]...\n" + '\n'.join(end_lines)
-                est_prompt_tokens = len(prompt) // 3 + 120
+                if hasattr(llm, "tokenize"):
+                    est_prompt_tokens = len(llm.tokenize(prompt.encode('utf-8'))) + 120
+                else:
+                    est_prompt_tokens = len(prompt) // 3 + 120
             
             # Ensure we never request more tokens than the available space
             safe_max = ctx - est_prompt_tokens
