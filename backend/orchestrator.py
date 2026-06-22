@@ -1823,7 +1823,7 @@ class AgentOrchestrator:
                     ds_answer = self._strip_thinking(self._call_model(ds_llm, draft_p, gen_tokens, gen_temp, system_prompt=reasoning_sys))
 
                     if status_callback:
-                        status_callback(f"Verifying in Reasoning Playground (Attempt {rnd+1}/3)...", "info", "deepseek_r1", 35 + rnd*12)
+                        status_callback(f"Verifying in Reasoning Playground (Attempt {rnd+1}/{max_rounds})...", "info", "deepseek_r1", 35 + rnd*12)
                     verified, pg_out, test_code = self._run_playground(ds_llm, ds_answer, "reasoning", model_key="deepseek_r1")
 
                     if verified:
@@ -1842,7 +1842,7 @@ class AgentOrchestrator:
 
                     # DeepSeek-R1-7B corrects its own draft (zero model swap latency)
                     if status_callback:
-                        status_callback(f"DeepSeek-R1 correcting reasoning (Attempt {rnd+1}/3)...", "warning", "deepseek_r1", 45 + rnd*12)
+                        status_callback(f"DeepSeek-R1 correcting reasoning (Attempt {rnd+1}/{max_rounds})...", "warning", "deepseek_r1", 45 + rnd*12)
                     vibe_p = (
                         f"This answer failed verification.\nAnswer:\n{ds_answer[:2000]}\n"
                         f"Error:\n{pg_out[:1000]}\nProvide a corrected, complete answer."
