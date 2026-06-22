@@ -177,19 +177,19 @@ For coding tasks, two agents work as a check-and-balance pair:
 - If code fails, VibeThinker attempts a **shallow fix** first
 - If shallow fix fails, a **deep escalation** rewrites the entire script
 - If deep escalation fails, a **Nuclear Reset** extracts lessons from all failures and starts over from scratch with a new plan
-- Up to **3 full reset cycles** are attempted before returning the best-effort output
+- Up to **2 reflexion loops**, **1 Nuclear Reset cycle** (incorporating failure lessons), and **1 emergency web search cycle** are executed in an optimized workflow before returning the best-effort output
 
 ---
 
 ### 3 — Dual Sandbox Verification
 The pipeline has two distinct sandboxes that run at different stages:
-- **Reasoning Sandbox** — Runs before code is written. DeepSeek-R1 writes a Python verification script to check its own logic plan. It has access to advanced math and science tools (like `sympy`, `scipy` ODE solvers for metabolic/enzyme kinetics, `Bio` (Biopython) for genomics/sequence verification, `rdkit` for cheminformatics/bond properties, `z3` theorem prover, `astropy`, and `pint`). If the plan fails logical verification, VibeThinker steps in to correct it before any code is written.
+- **Reasoning Sandbox** — Runs before code is written. DeepSeek-R1 writes a Python verification script to check its own logic plan. It has access to advanced math and science tools (like `sympy`, `scipy` ODE solvers for metabolic/enzyme kinetics, `Bio` (Biopython) for genomics/sequence verification, `rdkit` for cheminformatics/bond properties, `rocketpy` for trajectory/missile physics, `qiskit` & `qutip` for quantum dynamics/circuits, `z3` theorem prover, `astropy`, and `pint`). If the plan fails logical verification, VibeThinker steps in to correct it before any code is written.
 - **Execution Sandbox** — Runs the final generated code in a fully isolated subprocess with three layers of protection:
   - Process isolation (crashes can't kill the server)
   - Restricted `__import__` whitelist (no `os`, `subprocess`, `socket`)
-  - Linux resource caps (1 GB RAM, 120s CPU, 50 child processes)
+  - Linux resource caps (2 GB RAM, 120s CPU, 200 child processes)
 - **Unrestricted Fallback Mode:** If the secure restricted sandbox blocks a legitimate external library (e.g. PyTorch, external REST APIs), the orchestrator elegantly falls back to unrestricted execution, prefixing outputs with `⚠️ [Unrestricted Fallback]` to ensure transparency.
-- Supports **Python, C, C++, Java, JavaScript, and Bash** — auto-detected from code signatures
+- Supports **Python, C, C++, Java, JavaScript, Bash, Go, Rust, and TypeScript** — auto-detected from code signatures
 
 ---
 
