@@ -115,7 +115,7 @@ class AgentOrchestrator:
         self.gpu_layers = -1
         self.enable_web_search = False
         
-        self.sandbox = Sandbox(timeout=60)
+        self.sandbox = Sandbox(timeout=300)
         self.memory = Memory()
         self.web_search = WebSearch()
         self.loaded_models = {}

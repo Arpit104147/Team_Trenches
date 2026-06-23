@@ -106,8 +106,8 @@ try:
     # Max 2 GB RAM (enough for numpy/pandas heavy workloads and complex physics/biology simulation solvers)
     resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024))
     # Max 30 seconds of CPU time to aggressively kill infinite loops
-    # Increased to 120 seconds for heavier simulations
-    resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
+    # Increased to 300 seconds for heavier simulations
+    resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
     # Max 200 child processes (allows multiprocessing but blocks fork bombs)
     resource.setrlimit(resource.RLIMIT_NPROC, (200, 200))
     # Max 100 MB file writes (allows data output but prevents disk flooding)
@@ -249,7 +249,7 @@ print(json.dumps(result))
 
 
 class Sandbox:
-    def __init__(self, timeout=120):
+    def __init__(self, timeout=300):
         self.timeout = timeout
 
     def _detect_gui(self, code):
