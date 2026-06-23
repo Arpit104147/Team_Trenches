@@ -1451,6 +1451,10 @@ class AgentOrchestrator:
                     for r in results:
                         link = r.get('link', '')
                         if link:
+                            # Skip Google News index pages to avoid scraping massive, noisy, cross-mixed aggregates
+                            if "news.google.com" in link.lower() and ("/topics/" in link.lower() or "/stories/" in link.lower() or "/publications/" in link.lower()):
+                                continue
+                            
                             if status_callback:
                                 status_callback(f"Scraping: {link[:40]}...", "info", "router", 12)
                             
@@ -1461,13 +1465,18 @@ class AgentOrchestrator:
                                 break
                                 
                 if full_page_text and scraped_link:
-                    web_context = f"--- FULL PAGE CONTEXT ({scraped_link}) ---\n{full_page_text}\n\n"
+                    web_context = (
+                        f"=== START SCRAPED WEB PAGE ===\n"
+                        f"URL: {scraped_link}\n"
+                        f"Page Content:\n{full_page_text}\n"
+                        f"=== END SCRAPED WEB PAGE ===\n\n"
+                    )
                     
                 # Add snippets for all search results to provide a comprehensive baseline
                 if results:
-                    snippets = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in results])
+                    snippets = "\n".join([f"- Title: {r.get('title')}\n  Snippet: {r.get('snippet', '')}\n  Link: {r.get('link', '')}" for r in results])
                     if snippets:
-                        web_context += f"--- OTHER SNIPPETS ---\n{snippets}"
+                        web_context += f"=== START OTHER SEARCH SNIPPETS ===\n{snippets}\n=== END OTHER SEARCH SNIPPETS ===\n"
 
             except Exception as e:
                 print(f"Web search enrichment failed: {e}")
@@ -1481,6 +1490,8 @@ class AgentOrchestrator:
             system_instruction = (
                 "You are an advanced AI assistant equipped with real-time web search capabilities.\n"
                 "Use the provided Web Context to answer the User Query directly, accurately, and factually.\n"
+                "MANDATORY CITATION RULE: Carefully match each news story, headline, author, and date with "
+                "its exact source publication. Do not cross-mix authors or articles across different news outlets.\n"
                 "Since you are provided with live search results, do NOT mention your training cutoff date, "
                 "do NOT state that you cannot access real-time/current information, and do NOT add disclaimers "
                 "about not having internet access. Answer as a live, fully-connected AI.\n\n"
