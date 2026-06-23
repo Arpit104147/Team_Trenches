@@ -1642,8 +1642,22 @@ class AgentOrchestrator:
             if not verified:
                 if status_callback:
                     status_callback("Logic failed. VibeThinker intervening...", "warning", "vibethinker", 35)
+                
+                # Fetch quick helper web search context
+                helper_search_context = ""
+                try:
+                    search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                    web_res = self.web_search.search(search_term, max_results=3)
+                    if web_res:
+                        helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                except Exception:
+                    pass
+
                 vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
+                search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
                 fix_p = (
+                    f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
+                    f"{search_str}"
                     f"Logic plan FAILED verification.\nPlan:\n{ds_draft[:2000]}\n"
                     f"Error:\n{pg_out[:1000]}\nRewrite a corrected logic plan."
                 )
@@ -1681,6 +1695,17 @@ class AgentOrchestrator:
 
             # ── Phase 5 & 6: Reflexion Loops (Only run during initial draft, not during Nuclear Reset) ──
             if reset == 0:
+                # Fetch quick helper web search context
+                helper_search_context = ""
+                try:
+                    search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                    web_res = self.web_search.search(search_term, max_results=3)
+                    if web_res:
+                        helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                except Exception:
+                    pass
+                search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
+
                 # ── Phase 5: Shallow Fix (VibeThinker) ───────────────────────
                 if status_callback:
                     status_callback("VibeThinker fixing code...", "warning", "vibethinker", 72)
@@ -1690,6 +1715,8 @@ class AgentOrchestrator:
                 safe_code = code[:2000] if len(code) > 2000 else code
                 safe_error = output[:800] if len(output) > 800 else output
                 fix_p = (
+                    f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
+                    f"{search_str}"
                     f"The following Python code FAILED with an error.\n\n"
                     f"CODE:\n{safe_code}\n\n"
                     f"ERROR:\n{safe_error}\n\n"
@@ -1714,6 +1741,8 @@ class AgentOrchestrator:
                     status_callback("Deep Escalation: DeepSeek-R1 rewriting...", "warning", "deepseek_r1", 80)
                 ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
                 esc_p = (
+                    f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
+                    f"{search_str}"
                     f"Code failed TWICE. You MUST fix it.\nPlan:\n{compiled_plan[:1500]}\n"
                     f"Code:\n{code[:2000]}\nError:\n{output[:800]}\n"
                     f"Rewrite the ENTIRE script from scratch in ```python```. Think step by step."
@@ -1746,9 +1775,9 @@ class AgentOrchestrator:
             if len(error_query) > 120:
                 error_query = error_query[-120:]
             
-            # Construct a highly relevant search term combining prompt keywords and error
-            clean_prompt_query = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:8])
-            search_term = f"{clean_prompt_query} {error_query}"
+            # Construct a clean search query using only prompt keywords to avoid search engine contamination
+            clean_prompt_query = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:12])
+            search_term = clean_prompt_query
             if len(search_term) > 150:
                 search_term = search_term[:150]
 
@@ -1781,6 +1810,7 @@ class AgentOrchestrator:
                         if status_callback:
                             status_callback("Emergency script failed. Attempting 1 correction round...", "warning", "deepseek_r1", 97)
                         patch_prompt = (
+                            f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
                             f"The emergency script failed with the following traceback/error:\n{output[:800]}\n\n"
                             f"Original code:\n{code[:1500]}\n\n"
                             f"Using this traceback, rewrite the complete functional Python script to fix the error.\n"
@@ -1856,6 +1886,7 @@ class AgentOrchestrator:
                 ds_answer = ""
                 vibe_answer = ""
                 vibe_pg_out = ""
+                helper_search_context = ""
                 for rnd in range(max_rounds):
                     # Re-acquire ds_llm because VibeThinker may have evicted it in the previous round
                     ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
@@ -1866,8 +1897,9 @@ class AgentOrchestrator:
                     if rnd > 0:
                         last_failed = vibe_answer if vibe_answer else ds_answer
                         last_error = vibe_pg_out if vibe_pg_out else pg_out
+                        search_str = f"\n\nHelper Web Context:\n{helper_search_context}" if helper_search_context else ""
                         draft_p += (
-                            f"\n\nYour previous attempt failed sandbox verification.\n"
+                            f"\n\nYour previous attempt failed sandbox verification.{search_str}\n"
                             f"Previous Failed Draft:\n{last_failed[:1500]}\n"
                             f"Verification Error:\n{last_error[:800]}\n"
                             f"Identify the mistake in the previous attempt and rewrite the complete, corrected answer from scratch, resolving all issues."
@@ -1892,11 +1924,23 @@ class AgentOrchestrator:
                         viz = self._check_3d_gate(prompt, ds_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         return f"### Verified Answer\n{ds_answer}{viz}"
 
+                    # Fetch quick helper web search context to resolve unknown concepts immediately
+                    helper_search_context = ""
+                    try:
+                        search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                        web_res = self.web_search.search(search_term, max_results=3)
+                        if web_res:
+                            helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                    except Exception:
+                        pass
+                    search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
+
                     # DeepSeek-R1-7B corrects its own draft (zero model swap latency)
                     if status_callback:
                         status_callback(f"DeepSeek-R1 correcting reasoning (Attempt {rnd+1}/{max_rounds})...", "warning", "deepseek_r1", 45 + rnd*12)
                     vibe_p = (
                         f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
+                        f"{search_str}"
                         f"This answer failed verification.\nAnswer:\n{ds_answer[:2000]}\n"
                         f"Error:\n{pg_out[:1000]}\nProvide a corrected, complete answer."
                     )
