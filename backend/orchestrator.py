@@ -1854,6 +1854,8 @@ class AgentOrchestrator:
             for reset in range(max_resets):
                 max_rounds = 2 if reset == 0 else 1
                 ds_answer = ""
+                vibe_answer = ""
+                vibe_pg_out = ""
                 for rnd in range(max_rounds):
                     # Re-acquire ds_llm because VibeThinker may have evicted it in the previous round
                     ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
@@ -1862,7 +1864,14 @@ class AgentOrchestrator:
                         status_callback(lbl, "info" if not reset else "warning", "deepseek_r1", 25 + rnd*12)
                     draft_p = f"Provide a detailed, rigorous answer:\n{ds_safe}"
                     if rnd > 0:
-                        draft_p += "\n\nYour previous answer had errors. Rewrite from scratch."
+                        last_failed = vibe_answer if vibe_answer else ds_answer
+                        last_error = vibe_pg_out if vibe_pg_out else pg_out
+                        draft_p += (
+                            f"\n\nYour previous attempt failed sandbox verification.\n"
+                            f"Previous Failed Draft:\n{last_failed[:1500]}\n"
+                            f"Verification Error:\n{last_error[:800]}\n"
+                            f"Identify the mistake in the previous attempt and rewrite the complete, corrected answer from scratch, resolving all issues."
+                        )
                     if lessons:
                         draft_p += f"\n\nLESSONS FROM PREVIOUS FAILURES:\n{lessons[:800]}"
                     # Safety: truncate prompt to leave room for generation
