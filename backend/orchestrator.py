@@ -1142,82 +1142,201 @@ class AgentOrchestrator:
         # Prepend mocks for DOM, Window, THREE, and Plotly to Node.js context.
         # This will bypass typical browser-only ReferenceErrors while letting actual syntax/API bugs throw errors.
         mocks = """
-        // Mock DOM & Window
+        // ── Comprehensive DOM Mock ──────────────────────────────────────
+        const _mockElement = (tag) => ({
+            tagName: (tag || 'DIV').toUpperCase(),
+            style: new Proxy({}, { get: () => '', set: () => true }),
+            classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+            children: [],
+            childNodes: [],
+            parentNode: null,
+            textContent: '',
+            innerHTML: '',
+            innerText: '',
+            value: '',
+            checked: false,
+            offsetWidth: 1024,
+            offsetHeight: 768,
+            clientWidth: 1024,
+            clientHeight: 768,
+            scrollWidth: 1024,
+            scrollHeight: 768,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            appendChild: function(c) { this.children.push(c); return c; },
+            removeChild: function(c) { return c; },
+            insertBefore: function(n) { return n; },
+            replaceChild: function(n) { return n; },
+            cloneNode: function() { return _mockElement(tag); },
+            getAttribute: () => null,
+            setAttribute: () => {},
+            removeAttribute: () => {},
+            hasAttribute: () => false,
+            querySelector: () => _mockElement(),
+            querySelectorAll: () => [],
+            getElementsByClassName: () => [],
+            getElementsByTagName: () => [],
+            getBoundingClientRect: () => ({ top: 0, left: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0 }),
+            focus: () => {},
+            blur: () => {},
+            click: () => {},
+            dispatchEvent: () => true,
+            getContext: (type) => {
+                // WebGL / 2D Canvas mock
+                const handler = { get: (t, p) => typeof t[p] !== 'undefined' ? t[p] : (() => ({})) };
+                return new Proxy({
+                    canvas: { width: 1024, height: 768 },
+                    drawingBufferWidth: 1024,
+                    drawingBufferHeight: 768,
+                    getExtension: () => ({}),
+                    getParameter: () => 0,
+                    createShader: () => ({}), compileShader: () => {}, shaderSource: () => {},
+                    getShaderParameter: () => true, getShaderInfoLog: () => '',
+                    createProgram: () => ({}), attachShader: () => {}, linkProgram: () => {},
+                    getProgramParameter: () => true, useProgram: () => {},
+                    createBuffer: () => ({}), bindBuffer: () => {}, bufferData: () => {},
+                    enableVertexAttribArray: () => {}, vertexAttribPointer: () => {},
+                    drawArrays: () => {}, drawElements: () => {},
+                    viewport: () => {}, enable: () => {}, disable: () => {},
+                    clearColor: () => {}, clear: () => {},
+                    createTexture: () => ({}), bindTexture: () => {}, texImage2D: () => {},
+                    texParameteri: () => {}, generateMipmap: () => {},
+                    getUniformLocation: () => ({}), getAttribLocation: () => 0,
+                    uniform1f: () => {}, uniform1i: () => {}, uniform2f: () => {},
+                    uniform3f: () => {}, uniform4f: () => {},
+                    uniformMatrix4fv: () => {},
+                    // 2D Canvas
+                    fillRect: () => {}, clearRect: () => {}, strokeRect: () => {},
+                    fillText: () => {}, strokeText: () => {}, measureText: () => ({ width: 10 }),
+                    beginPath: () => {}, closePath: () => {}, moveTo: () => {}, lineTo: () => {},
+                    arc: () => {}, arcTo: () => {}, bezierCurveTo: () => {}, quadraticCurveTo: () => {},
+                    fill: () => {}, stroke: () => {},
+                    save: () => {}, restore: () => {}, translate: () => {}, rotate: () => {}, scale: () => {},
+                    setTransform: () => {}, resetTransform: () => {},
+                    createLinearGradient: () => ({ addColorStop: () => {} }),
+                    createRadialGradient: () => ({ addColorStop: () => {} }),
+                }, handler);
+            }
+        });
+
         global.document = {
-            getElementById: () => ({ 
-                addEventListener: () => {},
-                appendChild: () => {},
-                style: {},
-                getContext: () => ({
-                    createShader: () => ({}),
-                    compileShader: () => ({}),
-                    createProgram: () => ({}),
-                    attachShader: () => ({}),
-                    linkProgram: () => ({}),
-                    getProgramParameter: () => true,
-                    useProgram: () => ({}),
-                    createBuffer: () => ({}),
-                    bindBuffer: () => ({}),
-                    bufferData: () => ({}),
-                    enableVertexAttribArray: () => ({}),
-                    vertexAttribPointer: () => ({}),
-                    drawArrays: () => ({}),
-                })
-            }),
-            createElement: () => ({ style: {}, getContext: () => ({}) }),
-            body: { appendChild: () => {}, style: {} },
-            addEventListener: () => {}
+            getElementById: () => _mockElement(),
+            querySelector: () => _mockElement(),
+            querySelectorAll: () => [],
+            getElementsByClassName: () => [],
+            getElementsByTagName: () => [],
+            createElement: (tag) => _mockElement(tag),
+            createElementNS: (ns, tag) => _mockElement(tag),
+            createTextNode: () => _mockElement('text'),
+            createDocumentFragment: () => _mockElement('fragment'),
+            body: _mockElement('body'),
+            head: _mockElement('head'),
+            documentElement: _mockElement('html'),
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            readyState: 'complete',
+            cookie: '',
         };
+
         global.window = {
             innerWidth: 1024,
             innerHeight: 768,
+            outerWidth: 1024,
+            outerHeight: 768,
+            devicePixelRatio: 1,
             addEventListener: () => {},
+            removeEventListener: () => {},
+            getComputedStyle: () => new Proxy({}, { get: () => '0px' }),
+            matchMedia: () => ({ matches: false, addEventListener: () => {} }),
             requestAnimationFrame: (cb) => {
-                // Run animation loop exactly ONCE to verify there are no runtime ReferenceErrors
-                if (!global.__ran_animation_loop) {
-                    global.__ran_animation_loop = true;
-                    try { cb(0); } catch(e) {}
+                if (!global.__raf_count) global.__raf_count = 0;
+                if (global.__raf_count < 2) {
+                    global.__raf_count++;
+                    try { cb(global.__raf_count * 16.67); } catch(e) {}
                 }
+                return global.__raf_count;
             },
+            cancelAnimationFrame: () => {},
             document: global.document,
-            location: { href: "" }
+            location: { href: '', hostname: 'localhost', protocol: 'http:' },
+            history: { pushState: () => {}, replaceState: () => {} },
+            scrollTo: () => {},
+            scroll: () => {},
+            open: () => {},
+            close: () => {},
+            alert: () => {},
+            confirm: () => true,
+            prompt: () => '',
+            performance: { now: () => 0 },
+            ResizeObserver: function() { this.observe = () => {}; this.unobserve = () => {}; this.disconnect = () => {}; },
+            MutationObserver: function() { this.observe = () => {}; this.disconnect = () => {}; },
+            IntersectionObserver: function() { this.observe = () => {}; this.unobserve = () => {}; this.disconnect = () => {}; },
         };
-        global.navigator = { userAgent: "" };
-        
-        // Mock THREE.js via a Universal Proxy to catch missing API constructors or undefined variables
+
+        // Promote critical browser globals to the global scope
+        global.requestAnimationFrame = global.window.requestAnimationFrame;
+        global.cancelAnimationFrame = global.window.cancelAnimationFrame;
+        global.setTimeout = (cb, ms) => { try { cb(); } catch(e) {} return 1; };
+        global.clearTimeout = () => {};
+        global.setInterval = (cb, ms) => { return 1; };
+        global.clearInterval = () => {};
+        global.navigator = { userAgent: 'Mozilla/5.0', language: 'en-US', platform: 'Linux x86_64' };
+        global.performance = global.window.performance;
+        global.Image = function() { this.src = ''; this.onload = null; this.onerror = null; this.width = 1; this.height = 1; };
+        global.fetch = () => Promise.resolve({ json: () => Promise.resolve({}), text: () => Promise.resolve('') });
+        global.XMLHttpRequest = function() { this.open = () => {}; this.send = () => {}; this.setRequestHeader = () => {}; };
+        global.ResizeObserver = global.window.ResizeObserver;
+        global.MutationObserver = global.window.MutationObserver;
+        global.IntersectionObserver = global.window.IntersectionObserver;
+        global.HTMLElement = function() {};
+        global.HTMLCanvasElement = function() {};
+        global.WebGLRenderingContext = function() {};
+
+        // ── Mock THREE.js via a Universal Proxy ─────────────────────────
         const createProxy = (name) => {
             const mockFn = function() {};
-            
-            // Common nested properties to avoid undefined errors during instantiation/method chains
-            mockFn.position = { x: 0, y: 0, z: 0, set: () => {}, copy: () => {} };
-            mockFn.rotation = { x: 0, y: 0, z: 0, set: () => {} };
-            mockFn.scale = { x: 1, y: 1, z: 1, set: () => {} };
+            mockFn.position = { x: 0, y: 0, z: 0, set: () => mockFn.position, copy: () => mockFn.position, clone: () => ({x:0,y:0,z:0,set:()=>{},copy:()=>{}}), add: () => mockFn.position, sub: () => mockFn.position, normalize: () => mockFn.position, multiplyScalar: () => mockFn.position, length: () => 0, distanceTo: () => 0 };
+            mockFn.rotation = { x: 0, y: 0, z: 0, set: () => {}, copy: () => {} };
+            mockFn.scale = { x: 1, y: 1, z: 1, set: () => mockFn.scale, copy: () => {} };
+            mockFn.up = { x: 0, y: 1, z: 0, set: () => {} };
+            mockFn.quaternion = { set: () => {}, setFromAxisAngle: () => {}, copy: () => {} };
+            mockFn.matrix = { set: () => {}, copy: () => {}, multiply: () => {} };
             mockFn.shadowMap = { enabled: false, type: 0 };
-            mockFn.color = { set: () => {}, setHex: () => {}, setRGB: () => {} };
-            mockFn.domElement = { addEventListener: () => {}, removeEventListener: () => {}, style: {} };
-            mockFn.add = () => {};
+            mockFn.color = { set: () => mockFn.color, setHex: () => mockFn.color, setRGB: () => mockFn.color, r: 1, g: 1, b: 1, clone: () => mockFn.color };
+            mockFn.material = { color: mockFn.color, opacity: 1, transparent: false, dispose: () => {} };
+            mockFn.geometry = { dispose: () => {}, setAttribute: () => {}, setFromPoints: () => mockFn.geometry, attributes: {} };
+            mockFn.domElement = _mockElement('canvas');
+            mockFn.add = () => mockFn;
+            mockFn.remove = () => mockFn;
             mockFn.render = () => {};
             mockFn.setSize = () => {};
             mockFn.setPixelRatio = () => {};
+            mockFn.setClearColor = () => {};
             mockFn.update = () => {};
             mockFn.lookAt = () => {};
-            mockFn.set = () => {};
-            mockFn.clone = () => mockFn;
-            
+            mockFn.set = () => mockFn;
+            mockFn.clone = () => createProxy(name);
+            mockFn.dispose = () => {};
+            mockFn.traverse = (cb) => { try { cb(mockFn); } catch(e) {} };
+            mockFn.getPoints = () => [];
+            mockFn.setFromPoints = () => mockFn;
+            mockFn.copy = () => mockFn;
+            mockFn.applyMatrix4 = () => mockFn;
+            mockFn.normalize = () => mockFn;
+            mockFn.multiplyScalar = () => mockFn;
+            mockFn.cross = () => mockFn;
+            mockFn.dot = () => 0;
+            mockFn.length = () => 0;
+            mockFn.aspect = 1;
+
             return new Proxy(mockFn, {
                 construct(target, args) {
                     return createProxy(name);
                 },
                 get(target, prop) {
-                    // Specific mock for ArcGeometry to fail verification
-                    if (prop === 'ArcGeometry') {
-                        return undefined; // Will throw TypeError
-                    }
-                    if (prop in target) {
-                        return target[prop];
-                    }
-                    // Return a new proxy for un-mocked nested properties
-                    return createProxy(`${name}.${prop}`);
+                    if (prop === 'ArcGeometry') return undefined;
+                    if (prop in target) return target[prop];
+                    return createProxy(`${name}.${String(prop)}`);
                 },
                 set(target, prop, value) {
                     target[prop] = value;
@@ -1227,12 +1346,17 @@ class AgentOrchestrator:
         };
         global.THREE = createProxy('THREE');
         global.Plotly = createProxy('Plotly');
-        
+
         // Safe console mock
         global.console = {
             log: () => {},
             error: () => {},
-            warn: () => {}
+            warn: () => {},
+            info: () => {},
+            debug: () => {},
+            table: () => {},
+            time: () => {},
+            timeEnd: () => {},
         };
         """
         full_test_code = mocks + "\n" + js_code
@@ -1245,7 +1369,7 @@ class AgentOrchestrator:
             status_callback("Checking 3D Visualization Eligibility...", "info", "router", 90)
 
         # Rule-based auto-match for graphing/visualization tasks to ensure 100% reliability
-        auto_keywords = ["3d", "plotly", "three.js", "visualize", "visualization", "plot", "graph", "simulation", "simulate", "trajectory", "vector field"]
+        auto_keywords = ["3d", "plotly", "three.js", "visualize", "visualization", "plot", "graph", "simulation", "simulate", "trajectory", "vector field", "surface plot", "dna helix", "dna structure", "protein structure", "mitochondria", "cell structure", "organelle", "molecular model", "molecular structure", "double helix"]
         prompt_lower = prompt.lower()
         is_3d_flag = False
         if any(kw in prompt_lower for kw in auto_keywords):
@@ -1299,7 +1423,20 @@ class AgentOrchestrator:
             "8. IMPORTANT: The topic description below might contain Python instructions or python code fragments. You MUST translate all math solving, array operations, and plotting logic into pure JavaScript inside the HTML page. Do NOT write Python code, do NOT output Python code blocks, and do NOT refuse this request. Simply write the complete simulation in HTML/JS.\n"
             "9. Output the COMPLETE HTML page inside ```html``` blocks.\n"
             "10. SINGULARITY SAFETY: For equations with asymptotes or division-by-zero regions (like (V - b) in the van der Waals equation where V must be > b), you MUST ensure the swept ranges are strictly bounded outside the singular boundary (e.g., start V sweep range at 1.15 * b or higher). Never calculate division-by-zero, square roots of negative values, or log of non-positive numbers which produce NaN or Infinity values, as this will crash the WebGL/Plotly.js rendering context.\n"
-            "11. PHYSICAL ACCURACY & SCALING: When plotting physical equations of state (like van der Waals P-V-T diagrams), you MUST calculate the exact physical coordinates using the specified physical constants (e.g., real a, b, R values) and label axes with the correct physical units (e.g. Volume in L/mol, Temperature in K, Pressure in atm). Because values can spike to infinity near asymptotes (e.g. as V -> b), you MUST clip or cap the dependent variable (e.g., cap P at 5 * P_c or 10 * P_c) to prevent the scale from shrinking the rest of the surface details into a flat line. Do NOT plot random sine waves or generic noise grids; calculate the actual formula.\n\n"
+            "11. PHYSICAL ACCURACY & SCALING: When plotting physical equations of state (like van der Waals P-V-T diagrams), you MUST calculate the exact physical coordinates using the specified physical constants (e.g., real a, b, R values) and label axes with the correct physical units (e.g. Volume in L/mol, Temperature in K, Pressure in atm). Because values can spike to infinity near asymptotes (e.g. as V -> b), you MUST clip or cap the dependent variable (e.g., cap P at 5 * P_c or 10 * P_c) to prevent the scale from shrinking the rest of the surface details into a flat line. Do NOT plot random sine waves or generic noise grids; calculate the actual formula.\n"
+            "12. BIOLOGICAL 3D STRUCTURES: For biological or molecular structure visualizations (DNA helices, proteins, mitochondria, cell organelles, molecular bonds), "
+            "you MUST use Three.js (NOT Plotly) and follow these rules:\n"
+            "   - HIDE all X/Y/Z axis lines, axis labels, grid planes, and tick marks. Biological structures should float in a clean, immersive dark void.\n"
+            "   - Use realistic, science-textbook color palettes: e.g., Adenine=#FF6B6B (red), Thymine=#4ECDC4 (teal), Guanine=#45B7D1 (blue), Cytosine=#96CEB4 (green), phosphate backbone=#FFD93D (gold), sugar=#FF8A5C (orange).\n"
+            "   - Add smooth ambient lighting + directional light for depth perception. Use MeshPhongMaterial or MeshStandardMaterial (NOT MeshBasicMaterial) for realistic shading.\n"
+            "   - Implement mouse-based OrbitControls so the user can rotate and zoom around the structure freely.\n"
+            "   - Add a subtle slow auto-rotation animation so the structure gently spins when idle.\n"
+            "   - Add labeled annotations or floating HTML tooltips for key structural components (e.g., 'Major Groove', 'Minor Groove', 'Hydrogen Bond').\n"
+            "13. BIO-INTERACTIVE CONTROLS: For biological structures, include glassmorphic controls for:\n"
+            "   - A 'Rotation Speed' slider to control the auto-rotation speed.\n"
+            "   - Toggle buttons to show/hide structural components (e.g., 'Show Backbone', 'Show Base Pairs', 'Show Hydrogen Bonds').\n"
+            "   - A 'Zoom' slider or mouse scroll zoom.\n"
+            "   - An info panel showing the name and function of the currently highlighted component on hover.\n\n"
             f"Topic: {compiled_plan[:3000]}"
         )
         html_code = self._call_model(
