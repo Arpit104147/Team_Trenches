@@ -1068,6 +1068,26 @@ class AgentOrchestrator:
         test_response = self._call_model(coder_model, playground_prompt, max_tokens=4096, temperature=0.1)
         test_code = Sandbox.extract_code(test_response)
         success, output = self.sandbox.execute(test_code, language='python')
+        
+        # ── Router Linter Intercept for Verification/Playground Scripts ──
+        if not success and test_code:
+            is_syntax_error = any(e in output for e in ["SyntaxError", "ModuleNotFoundError", "NameError", "IndentationError", "TypeError", "AttributeError", "ValueError"])
+            if is_syntax_error:
+                router_linter = self._get_model("router", required_ctx=8192)
+                lint_p = (
+                    "You are a fast Python Syntax Linter.\n"
+                    f"The playground verification script failed with this error:\n{output[:600]}\n\n"
+                    f"CODE:\n{test_code[:2500]}\n\n"
+                    "Identify the typo/error and rewrite the complete corrected verification script in a ```python``` block. Fix ONLY the exact error, do not change the core assertions or print('VERIFIED') statement."
+                )
+                lint_code = Sandbox.extract_code(self._strip_thinking(self._call_model(router_linter, lint_p, 1024, 0.1, system_prompt="You are a strict syntax linter. Output only code.")))
+                if lint_code and len(lint_code) > 20:
+                    linter_success, linter_output = self.sandbox.execute(lint_code, language='python')
+                    if linter_success:
+                        test_code = lint_code
+                        output = linter_output
+                        success = True
+
         verified = success and "VERIFIED" in output
         return verified, output, test_code
 
