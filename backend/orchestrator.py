@@ -1556,7 +1556,12 @@ class AgentOrchestrator:
         import datetime
         current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        system_instruction = ""
+        system_instruction = (
+            "You are a helpful, direct, and capable AI assistant.\n"
+            "Answer the User Query clearly, accurately, and concisely. Do NOT mention your training cutoff date, "
+            "do NOT state that you cannot access real-time/current information, and do NOT add unnecessary disclaimers. "
+            "Speak naturally as a live, fully-functional AI assistant.\n\n"
+        )
         if web_context:
             system_instruction = (
                 "You are an advanced AI assistant equipped with real-time web search capabilities.\n"
@@ -1570,7 +1575,7 @@ class AgentOrchestrator:
 
         enriched_prompt = (
             f"{system_instruction}Current System Date/Time: {current_date}\n\nWeb Context:\n{web_context}\n\nUser Query:\n{prompt}"
-            if web_context else f"Current System Date/Time: {current_date}\n\nUser Query:\n{prompt}"
+            if web_context else f"{system_instruction}Current System Date/Time: {current_date}\n\nUser Query:\n{prompt}"
         )
 
         # ── Dynamic Context Sizing (RAM/VRAM-aware) ────────────────────
