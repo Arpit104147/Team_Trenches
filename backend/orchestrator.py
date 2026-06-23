@@ -1511,11 +1511,17 @@ class AgentOrchestrator:
         oc_ctx_cap = self._get_dynamic_context_ceiling("opencode")
         
         if self.context_length == 0:
-            router_ctx = min(router_ctx_cap, est_tokens + self.max_tokens)
-            # DeepSeek-R1 is a reasoning/thinking model that generates large internal CoT thinking blocks.
-            # We allocate a larger 8k base context window to prevent thinking phases from cutting off the final answer.
-            ds_ctx = min(ds_ctx_cap, est_tokens + 8192)
-            oc_ctx = min(oc_ctx_cap, 8192)
+            if getattr(self, 'kaggle_hotswap_mode', False):
+                # In EVM hot-swap mode, only one model is loaded in VRAM at a time.
+                # We maximize the context length for all models to utilize the free VRAM.
+                router_ctx = router_ctx_cap
+                ds_ctx = ds_ctx_cap
+                oc_ctx = oc_ctx_cap
+            else:
+                # In standard shared-VRAM mode, keep context sizes tight to prevent OOM conflicts.
+                router_ctx = min(router_ctx_cap, est_tokens + self.max_tokens)
+                ds_ctx = min(ds_ctx_cap, est_tokens + 8192)
+                oc_ctx = min(oc_ctx_cap, 8192)
         else:
             router_ctx = min(self.context_length, router_ctx_cap)
             ds_ctx = min(self.context_length, ds_ctx_cap)
