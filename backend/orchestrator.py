@@ -1151,81 +1151,94 @@ class AgentOrchestrator:
         # This will bypass typical browser-only ReferenceErrors while letting actual syntax/API bugs throw errors.
         mocks = """
         // ── Comprehensive DOM Mock ──────────────────────────────────────
-        const _mockElement = (tag) => ({
-            tagName: (tag || 'DIV').toUpperCase(),
-            style: new Proxy({}, { get: () => '', set: () => true }),
-            classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
-            children: [],
-            childNodes: [],
-            parentNode: null,
-            textContent: '',
-            innerHTML: '',
-            innerText: '',
-            value: '',
-            checked: false,
-            offsetWidth: 1024,
-            offsetHeight: 768,
-            clientWidth: 1024,
-            clientHeight: 768,
-            scrollWidth: 1024,
-            scrollHeight: 768,
-            addEventListener: () => {},
-            removeEventListener: () => {},
-            appendChild: function(c) { this.children.push(c); return c; },
-            removeChild: function(c) { return c; },
-            insertBefore: function(n) { return n; },
-            replaceChild: function(n) { return n; },
-            cloneNode: function() { return _mockElement(tag); },
-            getAttribute: () => null,
-            setAttribute: () => {},
-            removeAttribute: () => {},
-            hasAttribute: () => false,
-            querySelector: () => _mockElement(),
-            querySelectorAll: () => [],
-            getElementsByClassName: () => [],
-            getElementsByTagName: () => [],
-            getBoundingClientRect: () => ({ top: 0, left: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0 }),
-            focus: () => {},
-            blur: () => {},
-            click: () => {},
-            dispatchEvent: () => true,
-            getContext: (type) => {
-                // WebGL / 2D Canvas mock
-                const handler = { get: (t, p) => typeof t[p] !== 'undefined' ? t[p] : (() => ({})) };
-                return new Proxy({
-                    canvas: { width: 1024, height: 768 },
-                    drawingBufferWidth: 1024,
-                    drawingBufferHeight: 768,
-                    getExtension: () => ({}),
-                    getParameter: () => 0,
-                    createShader: () => ({}), compileShader: () => {}, shaderSource: () => {},
-                    getShaderParameter: () => true, getShaderInfoLog: () => '',
-                    createProgram: () => ({}), attachShader: () => {}, linkProgram: () => {},
-                    getProgramParameter: () => true, useProgram: () => {},
-                    createBuffer: () => ({}), bindBuffer: () => {}, bufferData: () => {},
-                    enableVertexAttribArray: () => {}, vertexAttribPointer: () => {},
-                    drawArrays: () => {}, drawElements: () => {},
-                    viewport: () => {}, enable: () => {}, disable: () => {},
-                    clearColor: () => {}, clear: () => {},
-                    createTexture: () => ({}), bindTexture: () => {}, texImage2D: () => {},
-                    texParameteri: () => {}, generateMipmap: () => {},
-                    getUniformLocation: () => ({}), getAttribLocation: () => 0,
-                    uniform1f: () => {}, uniform1i: () => {}, uniform2f: () => {},
-                    uniform3f: () => {}, uniform4f: () => {},
-                    uniformMatrix4fv: () => {},
-                    // 2D Canvas
-                    fillRect: () => {}, clearRect: () => {}, strokeRect: () => {},
-                    fillText: () => {}, strokeText: () => {}, measureText: () => ({ width: 10 }),
-                    beginPath: () => {}, closePath: () => {}, moveTo: () => {}, lineTo: () => {},
-                    arc: () => {}, arcTo: () => {}, bezierCurveTo: () => {}, quadraticCurveTo: () => {},
-                    fill: () => {}, stroke: () => {},
-                    save: () => {}, restore: () => {}, translate: () => {}, rotate: () => {}, scale: () => {},
-                    setTransform: () => {}, resetTransform: () => {},
-                    createLinearGradient: () => ({ addColorStop: () => {} }),
-                    createRadialGradient: () => ({ addColorStop: () => {} }),
-                }, handler);
-            }
-        });
+        const _mockElement = (tag) => {
+            const el = {
+                tagName: (tag || 'DIV').toUpperCase(),
+                style: new Proxy({}, { get: () => '', set: () => true }),
+                classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+                children: [],
+                childNodes: [],
+                parentNode: null,
+                textContent: '',
+                innerHTML: '',
+                innerText: '',
+                value: '',
+                checked: false,
+                offsetWidth: 1024,
+                offsetHeight: 768,
+                clientWidth: 1024,
+                clientHeight: 768,
+                scrollWidth: 1024,
+                scrollHeight: 768,
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                appendChild: function(c) { this.children.push(c); return c; },
+                removeChild: function(c) { return c; },
+                insertBefore: function(n) { return n; },
+                replaceChild: function(n) { return n; },
+                cloneNode: function() { return _mockElement(tag); },
+                getAttribute: () => null,
+                setAttribute: () => {},
+                removeAttribute: () => {},
+                hasAttribute: () => false,
+                querySelector: () => _mockElement(),
+                querySelectorAll: () => [],
+                getElementsByClassName: () => [],
+                getElementsByTagName: () => [],
+                getBoundingClientRect: () => ({ top: 0, left: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0 }),
+                focus: () => {},
+                blur: () => {},
+                click: () => {},
+                dispatchEvent: () => true,
+                getContext: (type) => {
+                    const handler = { get: (t, p) => typeof t[p] !== 'undefined' ? t[p] : (() => ({})) };
+                    return new Proxy({
+                        canvas: { width: 1024, height: 768 },
+                        drawingBufferWidth: 1024,
+                        drawingBufferHeight: 768,
+                        getExtension: () => ({}),
+                        getParameter: () => 0,
+                        createShader: () => ({}), compileShader: () => {}, shaderSource: () => {},
+                        getShaderParameter: () => true, getShaderInfoLog: () => '',
+                        createProgram: () => ({}), attachShader: () => {}, linkProgram: () => {},
+                        getProgramParameter: () => true, useProgram: () => {},
+                        createBuffer: () => ({}), bindBuffer: () => {}, bufferData: () => {},
+                        enableVertexAttribArray: () => {}, vertexAttribPointer: () => {},
+                        drawArrays: () => {}, drawElements: () => {},
+                        viewport: () => {}, enable: () => {}, disable: () => {},
+                        clearColor: () => {}, clear: () => {},
+                        createTexture: () => ({}), bindTexture: () => {}, texImage2D: () => {},
+                        texParameteri: () => {}, generateMipmap: () => {},
+                        getUniformLocation: () => ({}), getAttribLocation: () => 0,
+                        uniform1f: () => {}, uniform1i: () => {}, uniform2f: () => {},
+                        uniform3f: () => {}, uniform4f: () => {},
+                        uniformMatrix4fv: () => {},
+                        // 2D Canvas
+                        fillRect: () => {}, clearRect: () => {}, strokeRect: () => {},
+                        fillText: () => {}, strokeText: () => {}, measureText: () => ({ width: 10 }),
+                        beginPath: () => {}, closePath: () => {}, moveTo: () => {}, lineTo: () => {},
+                        arc: () => {}, arcTo: () => {}, bezierCurveTo: () => {}, quadraticCurveTo: () => {},
+                        fill: () => {}, stroke: () => {},
+                        save: () => {}, restore: () => {}, translate: () => {}, rotate: () => {}, scale: () => {},
+                        setTransform: () => {}, resetTransform: () => {},
+                        createLinearGradient: () => ({ addColorStop: () => {} }),
+                        createRadialGradient: () => ({ addColorStop: () => {} }),
+                    }, handler);
+                }
+            };
+            return new Proxy(el, {
+                get(target, prop) {
+                    if (prop in target) return target[prop];
+                    if (prop === 'then' || prop === 'catch' || prop === 'on' || prop === 'off') {
+                        return (cb) => {
+                            try { if (typeof cb === 'function') cb(target); } catch(e) {}
+                            return target;
+                        };
+                    }
+                    return () => target;
+                }
+            });
+        };
 
         global.document = {
             getElementById: () => _mockElement(),
@@ -1344,7 +1357,16 @@ class AgentOrchestrator:
                 get(target, prop) {
                     if (prop === 'ArcGeometry') return undefined;
                     if (prop in target) return target[prop];
+                    if (prop === 'then' || prop === 'catch' || prop === 'on' || prop === 'off') {
+                        return (cb) => {
+                            try { if (typeof cb === 'function') cb(target); } catch(e) {}
+                            return new Proxy(mockFn, {});
+                        };
+                    }
                     return createProxy(`${name}.${String(prop)}`);
+                },
+                apply(target, thisArg, argumentsList) {
+                    return createProxy(`${name}()`);
                 },
                 set(target, prop, value) {
                     target[prop] = value;
@@ -1354,6 +1376,9 @@ class AgentOrchestrator:
         };
         global.THREE = createProxy('THREE');
         global.Plotly = createProxy('Plotly');
+        global.window.THREE = global.THREE;
+        global.window.Plotly = global.Plotly;
+        global.window.window = global.window;
 
         // Safe console mock
         global.console = {
