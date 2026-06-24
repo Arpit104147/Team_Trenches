@@ -1977,6 +1977,8 @@ class AgentOrchestrator:
             system_instruction = (
                 "You are an advanced AI assistant equipped with real-time web search capabilities.\n"
                 "Use the provided Web Context to answer the User Query directly, accurately, and factually.\n"
+                "CRITICAL INSTRUCTION: Do NOT act like a search engine listing search results (e.g., do NOT say 'Source A says this, Source B offers that'). "
+                "Instead, synthesize the raw data into a direct, conversational, and authoritative answer. Extract the actual requested data (like current temperatures, facts, or prices) and present it clearly to the user.\n"
                 "MANDATORY CITATION RULE: Carefully match each news story, headline, author, and date with "
                 "its exact source publication. Do not cross-mix authors or articles across different news outlets.\n"
                 "Since you are provided with live search results, do NOT mention your training cutoff date, "
