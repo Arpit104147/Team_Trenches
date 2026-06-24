@@ -183,9 +183,9 @@ class AgentOrchestrator:
                 _free, total_vram = torch.cuda.mem_get_info(0)
                 total_vram_gb = total_vram / (1024 ** 3)
                 if total_vram_gb <= 16:
-                    self.max_auto_ctx = 8192  # Increased from 4096 to prevent token cutoff
+                    self.max_auto_ctx = 16384  # Increased from 8192 to 16k for 16GB VRAM (like P100)
                 elif total_vram_gb <= 24:
-                    self.max_auto_ctx = 8192  # Increased from 6144
+                    self.max_auto_ctx = 16384  # Increased from 8192 to 16k for 24GB VRAM
                 elif total_vram_gb <= 48:
                     self.max_auto_ctx = 32768  # A6000 (48GB) / A100 (40GB) -> 32k context
                 else:
