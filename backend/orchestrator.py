@@ -925,6 +925,30 @@ class AgentOrchestrator:
 
     def _classify_task(self, router_llm, prompt):
         """Three-way classification: SIMPLE, CODING, or REASONING."""
+        prompt_clean = prompt.strip().lower()
+        
+        # 1. Fast-track greetings & simple metadata queries
+        greetings = {"hi", "hello", "hey", "hola", "howdy", "greetings", "good morning", "good afternoon", "good evening", "how are you", "who are you", "what is your name"}
+        if prompt_clean in greetings or prompt_clean.replace("?", "").strip() in greetings:
+            return "SIMPLE"
+            
+        # 2. Fast-track short queries (less than 15 chars) that are not coding
+        if len(prompt_clean) < 15:
+            code_kws = ["code", "write", "def ", "class ", "import ", "script", "app", "html", "css", "js", "cpp", "py"]
+            if not any(kw in prompt_clean for kw in code_kws):
+                return "SIMPLE"
+
+        # 3. Fast-track basic arithmetic (e.g., "2+2", "what is 5*5", "100 / 4")
+        arithmetic_clean = prompt_clean
+        for prefix in ["what is ", "whats ", "calculate ", "compute ", "what is the value of ", "solve "]:
+            if arithmetic_clean.startswith(prefix):
+                arithmetic_clean = arithmetic_clean[len(prefix):]
+        arithmetic_clean = arithmetic_clean.replace("?", "").strip()
+        
+        import re
+        if re.match(r"^[0-9+\-*/%().\s]+$", arithmetic_clean) and len(arithmetic_clean) > 0:
+            return "SIMPLE"
+
         p = (
             "Classify this query into EXACTLY ONE category. Reply with ONLY the category name.\n\n"
             "SIMPLE — Quick factual answers, greetings, definitions, translations, yes/no questions, fetching latest news/weather/facts.\n"
