@@ -1149,7 +1149,7 @@ body {
   padding: 0 2px;
 }
 
-/* Collapsible User Messages */
+/* Collapsible User Messages & Actions */
 .user-message-container {
   display: flex;
   flex-direction: column;
@@ -1182,8 +1182,14 @@ body {
   max-height: none;
 }
 
-.user-message-toggle {
+.user-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 6px;
+}
+
+.user-message-toggle {
   background: none;
   border: none;
   color: var(--accent);
@@ -1199,4 +1205,25 @@ body {
 .user-message-toggle:hover {
   background: var(--bg-hover);
   color: var(--accent-hover);
+}
+
+.user-copy-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+}
+
+.user-copy-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
 }
