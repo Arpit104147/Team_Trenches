@@ -156,6 +156,8 @@ This codebase features **Enterprise VRAM Multiplexing (EVM)**, a hardware-aware 
 
 When the Orchestrator detects this specific hardware profile, EVM activates autonomously. It loads the entire 5-model Swarm into the host System RAM. During generation, it aggressively hot-swaps models one-by-one via the PCIe bus into the GPU, forcefully evicting dormant agents. This guarantees the active reasoning model (like DeepSeek-R1) commands 100% of the VRAM for its massive KV Cache, effectively neutralizing Out-Of-Memory crashes during deep chain-of-thought processing.
 
+- **EVM Preloading (Load All Models):** To eliminate the initial 2-4 minute cold-start loading time during active chat, the sidebar includes a **Load All Models** button (enabled only when EVM mode is active). Clicking this triggers background parsing and loads all downloaded models into the Operating System Page Cache (System RAM). Subsequent PCIe hot-swaps during generation take only **1-2 seconds** instead of minutes.
+
 ---
 
 ## 🔑 Key Features In Detail
@@ -277,6 +279,10 @@ The sandboxed python environment supports live prediction and data analysis:
 
 To maximize accuracy, performance, and stability on consumer hardware, the following pipeline optimizations have been implemented:
 
+* **EVM Warm-Up Preloading:** Introduced background page-cache warming (`/api/load_all`) to speed up subsequent hot-swapping down to 1–2 seconds.
+* **RAG Memory Contamination Fix:** Enhanced `memory.recall()` to selectively prioritize successful solutions over intermediate mistake logs, preventing dirty code snippets from leaking into reasoning contexts.
+* **Output Bloat Control:** Integrated regex sanitization to strip raw Plotly JSON data from agent execution streams before final synthesis, preventing context window inflation.
+* **Fast-Pass Error Correction:** Swapped first-pass syntax repairs to run on the lightweight 1.5B `vibethinker` model, reserving the larger 7B model for deep architectural logic rewrites.
 * **Dynamic Context Scaling (RAM/VRAM-Aware):** Beyond the base 8k token limit, the context window dynamically expands up to **32k tokens** if the system has RAM/VRAM headroom (leaving a strict 5% memory safety margin). This allows the models to swallow massive web scraped pages or long local files when memory is clear.
 * **Deterministic Playground Verification:** Test script writing is routed to the **Router (Phi-3.5-Mini)** rather than the verbose DeepSeek-R1-7B. This prevents DeepSeek's long `<think>...</think>` tokens from consuming the context window and causing code truncation/syntax errors.
 * **Emergency Search Verification & Correction Loop:** After executing an emergency web search, the pipeline runs exactly 1 round of sandbox verification on the healed result. If it fails, DeepSeek gets the error traceback to perform a final correction round before returning the answer.
@@ -350,6 +356,7 @@ Team_Trenches/
 | `/api/download/{model_key}` | `POST` | Trigger background model download |
 | `/api/cancel` | `POST` | Stop active generation (models stay loaded) |
 | `/api/offload` | `POST` | Unload all models from RAM/VRAM |
+| `/api/load_all` | `POST` | Pre-load all downloaded models into RAM/page cache |
 | `/api/settings` | `POST` | Update context length, temperature, GPU layers |
 | `/api/memory/count` | `GET` | Number of stored long-term memories |
 | `/api/memory/clear` | `POST` | Reset the vector database |
