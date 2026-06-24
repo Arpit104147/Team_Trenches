@@ -1984,9 +1984,28 @@ class AgentOrchestrator:
                 "about not having internet access. Answer as a live, fully-connected AI.\n\n"
             )
 
+        # Retrieve relevant past experiences from memory/RAG early
+        past_experience = self.memory.recall(prompt, n_results=2)
+        
+        # Build structured context blocks
+        context_blocks = []
+        if web_context:
+            context_blocks.append(f"Web Context:\n{web_context}")
+        if past_experience:
+            context_blocks.append(
+                f"=== REFERENCE PAST EXPERIENCE ===\n"
+                f"The following is a reference of how similar tasks were solved in the past. "
+                f"Use it ONLY for code structure, syntax style, or API reference. "
+                f"Do NOT copy this system's details or solve this system; focus entirely on the active User Query below.\n\n"
+                f"{past_experience.strip()}\n"
+                f"================================="
+            )
+            
+        context_str = "\n\n".join(context_blocks)
+
         enriched_prompt = (
-            f"{system_instruction}Current System Date/Time: {current_date}\n\nWeb Context:\n{web_context}\n\nUser Query:\n{prompt}"
-            if web_context else f"{system_instruction}Current System Date/Time: {current_date}\n\nUser Query:\n{prompt}"
+            f"{system_instruction}Current System Date/Time: {current_date}\n\n{context_str}\n\nUser Query:\n{prompt}"
+            if context_str else f"{system_instruction}Current System Date/Time: {current_date}\n\nUser Query:\n{prompt}"
         )
 
         # ── Dynamic Context Sizing (RAM/VRAM-aware) ────────────────────
@@ -2183,11 +2202,6 @@ class AgentOrchestrator:
                          router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         logic_temp = 0.6
         ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback, router_llm=router_llm)
-
-        # ── Retrieve relevant past experiences from Memory/RAG ────────────
-        past_experience = self.memory.recall(prompt, n_results=2)
-        if past_experience:
-            ds_safe += past_experience
 
         max_resets = 2
         lessons = ""
@@ -2611,11 +2625,6 @@ class AgentOrchestrator:
     def _reasoning_pipeline(self, prompt, enriched_prompt, router_llm,
                             router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback, router_llm=router_llm)
-
-        # ── Retrieve relevant past experiences from Memory/RAG ────────────
-        past_experience = self.memory.recall(prompt, n_results=2)
-        if past_experience:
-            ds_safe += past_experience
 
         # ── Check: Can this be playground-verified? ──────────────────────
         # Must check this BEFORE loading ds_llm to prevent EVM from evicting router_llm

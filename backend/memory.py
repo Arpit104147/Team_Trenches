@@ -161,9 +161,12 @@ class Memory:
             "they've", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "wasn't", "we", 
             "we'd", "we'll", "we're", "we've", "were", "weren't", "what", "what's", "when", "when's", "where", "where's", 
             "which", "while", "who", "who's", "whom", "why", "why's", "with", "won't", "would", "wouldn't", "you", 
-            "you'd", "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves",
             # Common task-agnostic coding verbs to ignore
-            "write", "code", "program", "script", "create", "make", "generate", "give", "please", "solve", "run"
+            "write", "code", "program", "script", "create", "make", "generate", "give", "please", "solve", "run",
+            "plot", "plots", "plotting", "3d", "2d", "verify", "verification", "mathematically", "mathematical", 
+            "equation", "equations", "function", "functions", "surface", "constant", "constants", "value", "values", 
+            "parameter", "parameters", "result", "results", "output", "show", "showing", "find", "prove", "theorem", 
+            "calculate", "derivation", "derive", "analytical", "numerical", "scenario"
         }
         
         query_words = set(w.strip(",.!?") for w in task.lower().split() if w not in STOPWORDS and len(w) > 1)
