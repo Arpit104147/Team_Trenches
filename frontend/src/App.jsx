@@ -757,6 +757,32 @@ export default function App() {
     localStorage.getItem("server_url") || "http://127.0.0.1:8000"
   );
 
+  const [isConnected, setIsConnected] = useState(false);
+  const [isEvmActive, setIsEvmActive] = useState(false);
+  const [isPreloading, setIsPreloading] = useState(false);
+
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const res = await fetch(`${serverUrl}/api/status`);
+        if (res.ok) {
+          const data = await res.json();
+          setIsConnected(true);
+          setIsEvmActive(!!data.system?.evm_active);
+        } else {
+          setIsConnected(false);
+          setIsEvmActive(false);
+        }
+      } catch (err) {
+        setIsConnected(false);
+        setIsEvmActive(false);
+      }
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 5000);
+    return () => clearInterval(interval);
+  }, [serverUrl]);
+
   // Session management
   const [sessions, setSessions] = useState(() => {
     try { return JSON.parse(localStorage.getItem("chat_sessions") || "[]"); }
@@ -899,6 +925,23 @@ export default function App() {
       await fetch(`${serverUrl}/api/offload`, { method: "POST" });
       alert("All models offloaded from VRAM!");
     } catch { alert("Failed to offload."); }
+  };
+
+  const handleLoadAll = async () => {
+    if (!isConnected || !isEvmActive || isPreloading) return;
+    setIsPreloading(true);
+    try {
+      const res = await fetch(`${serverUrl}/api/load_all`, { method: "POST" });
+      if (res.ok) {
+        alert("All models successfully loaded into System RAM!");
+      } else {
+        alert("Failed to load all models.");
+      }
+    } catch {
+      alert("Failed to load all models.");
+    } finally {
+      setIsPreloading(false);
+    }
   };
 
   /* ─── SEND MESSAGE ─── */
@@ -1099,6 +1142,21 @@ export default function App() {
         <div className="sidebar-nav">
           <button className="nav-item" onClick={handleOffload}>
             <span className="nav-icon">🧹</span> Offload Memory
+          </button>
+          <button 
+            className="nav-item" 
+            onClick={handleLoadAll} 
+            disabled={!isConnected || !isEvmActive || isPreloading}
+            title={
+              !isConnected 
+                ? "Backend disconnected" 
+                : !isEvmActive 
+                  ? "EVM mode not active (requires EVM to pre-load)" 
+                  : "Load all models into System RAM"
+            }
+          >
+            <span className="nav-icon">{isPreloading ? "⏳" : "⚡"}</span> 
+            {isPreloading ? "Loading Swarm..." : "Load All Models"}
           </button>
         </div>
 

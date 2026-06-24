@@ -143,9 +143,16 @@ body {
   text-align: left;
 }
 
-.nav-item:hover {
+.nav-item:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.nav-item:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: transparent !important;
+  color: var(--text-tertiary) !important;
 }
 
 .nav-item .nav-icon {

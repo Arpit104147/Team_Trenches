@@ -119,7 +119,8 @@ def get_system_status():
             "ram_used": f"{ram.used / (1024**3):.1f} GB",
             "ram_total": f"{ram.total / (1024**3):.1f} GB",
             "ram_percent": f"{ram.percent}%",
-            "gpu": gpu_info
+            "gpu": gpu_info,
+            "evm_active": getattr(orchestrator, 'kaggle_hotswap_mode', False)
         },
         "settings": {
             "context_length": orchestrator.context_length,
@@ -180,6 +181,21 @@ async def offload_memory():
         orchestrator.unload_all_models()
         generation_cancel.clear()
         return {"status": "success", "message": "All models offloaded from memory."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/load_all")
+def load_all_models():
+    """Pre-load all downloaded models into RAM/page cache for instant startup."""
+    try:
+        models_status = check_models_status()
+        downloaded = [k for k, v in models_status.items() if v.get("downloaded")]
+        
+        # Sequentially load all downloaded models to populate RAM page cache
+        for model_key in downloaded:
+            orchestrator._get_model(model_key)
+            
+        return {"status": "success", "message": "All models successfully loaded into RAM."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
