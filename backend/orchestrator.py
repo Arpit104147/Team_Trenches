@@ -2045,102 +2045,118 @@ class AgentOrchestrator:
             "============================="
         )
 
+        # ── Execution Loop ──────────────────────────────────────────────────
+        initial_failed_code = ""
+        initial_failed_error = ""
+
         for reset in range(max_resets):
-            # ── Phase 1: DeepSeek Logic Plan ─────────────────────────────
-            if status_callback:
-                lbl = f"Nuclear Reset #{reset}: Rewriting..." if reset else "DeepSeek-R1 drafting logic..."
-                status_callback(lbl, "info" if not reset else "warning", "deepseek_r1", 20)
-
-            ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
-            plan_p = f"Create a step-by-step logic plan:\n{ds_safe}"
-            if lessons:
-                plan_p += f"\n\nLESSONS FROM PREVIOUS FAILURES:\n{lessons[:800]}"
-            # Safety: truncate prompt to leave room for generation
-            max_plan_prompt_chars = (ds_ctx - gen_tokens - 200) * 3
-            if len(plan_p) > max_plan_prompt_chars > 300:
-                plan_p = plan_p[:max_plan_prompt_chars]
-            ds_draft = self._strip_thinking(self._call_model(ds_llm, plan_p, gen_tokens, logic_temp, system_prompt=planner_sys))
-
-            # ── Phase 2: Reasoning Sandbox — Verify Logic ────────────────
-            if status_callback:
-                status_callback("Reasoning Sandbox: Verifying logic...", "info", "deepseek_r1", 30)
-            verified, pg_out, _ = self._run_playground(ds_llm, ds_draft, "logic", model_key="deepseek_r1", original_prompt=prompt)
-
-            if not verified:
+            max_rounds = 2 if reset == 0 else 1
+            for rnd in range(max_rounds):
+                # ── Phase 1: DeepSeek Logic Plan ─────────────────────────────
                 if status_callback:
-                    status_callback("Logic failed. Resolving with Emergency Search...", "warning", "router", 35)
-                
-                # Fetch quick helper web search context
-                helper_search_context = ""
-                try:
-                    router_llm = self._get_model("router", required_ctx=1024)
-                    search_opt_p = (
-                        "Generate a highly specific search query (3-6 words) to find the correct scientific formula, "
-                        "biological facts, or chemical properties to resolve this sandbox verification failure.\n\n"
-                        f"Original Prompt: {prompt}\n"
-                        f"Sandbox Failure Output: {pg_out[:500]}\n"
-                        "Output ONLY the search query."
+                    lbl = (
+                        f"Nuclear Reset #{reset} (Attempt {rnd+1}/{max_rounds}): DeepSeek-R1 drafting logic..."
+                        if reset else
+                        f"DeepSeek-R1 drafting logic (Attempt {rnd+1}/{max_rounds})..."
                     )
-                    search_term = self._call_model(router_llm, search_opt_p, max_tokens=30, temperature=0.1).strip()
-                    search_term = search_term.replace('"', '').replace('`', '').strip()
-                    if not search_term or len(search_term) < 5:
-                        search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
-                    
-                    if status_callback:
-                        status_callback(f"Emergency Search: '{search_term}'...", "info", "router", 36)
-                    
-                    web_res = self.web_search.search(search_term, max_results=3)
-                    if web_res:
-                        helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
-                except Exception:
-                    pass
+                    status_callback(lbl, "info" if not reset else "warning", "deepseek_r1", 20 + rnd*10)
 
-                vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
-                search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
-                fix_p = (
-                    f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
-                    f"{search_str}"
-                    f"Logic plan FAILED verification.\nPlan:\n{ds_draft[:2000]}\n"
-                    f"Error:\n{pg_out[:1000]}\nRewrite a corrected logic plan."
-                )
-                ds_draft = self._strip_thinking(self._call_model(vibe_llm, fix_p, gen_tokens, logic_temp, system_prompt=planner_sys))
-                v2, _, _ = self._run_playground(vibe_llm, ds_draft, "logic", model_key="vibethinker", original_prompt=prompt)
-                if v2 and status_callback:
-                    status_callback("VibeThinker corrected the logic!", "success", "vibethinker", 40)
-                elif status_callback:
-                    status_callback("Partially verified. Proceeding...", "warning", "vibethinker", 40)
-            else:
+                ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+                plan_p = f"Create a step-by-step logic plan:\n{ds_safe}"
+                if lessons:
+                    plan_p += f"\n\nLESSONS FROM PREVIOUS FAILURES:\n{lessons[:800]}"
+                # Safety: truncate prompt to leave room for generation
+                max_plan_prompt_chars = (ds_ctx - gen_tokens - 200) * 3
+                if len(plan_p) > max_plan_prompt_chars > 300:
+                    plan_p = plan_p[:max_plan_prompt_chars]
+                ds_draft = self._strip_thinking(self._call_model(ds_llm, plan_p, gen_tokens, logic_temp, system_prompt=planner_sys))
+
+                # ── Phase 2: Reasoning Sandbox — Verify Logic ────────────────
                 if status_callback:
-                    status_callback("Logic VERIFIED!", "success", "deepseek_r1", 40)
+                    status_callback(f"Reasoning Sandbox: Verifying logic (Attempt {rnd+1}/{max_rounds})...", "info", "deepseek_r1", 30 + rnd*10)
+                verified, pg_out, _ = self._run_playground(ds_llm, ds_draft, "logic", model_key="deepseek_r1", original_prompt=prompt)
 
-            compiled_plan = ds_draft
+                if not verified:
+                    if status_callback:
+                        status_callback("Logic failed. Resolving with Emergency Search...", "warning", "router", 35 + rnd*10)
+                    
+                    # Fetch quick helper web search context
+                    helper_search_context = ""
+                    try:
+                        router_llm = self._get_model("router", required_ctx=1024)
+                        search_opt_p = (
+                            "Generate a highly specific search query (3-6 words) to find the correct scientific formula, "
+                            "biological facts, or chemical properties to resolve this sandbox verification failure.\n\n"
+                            f"Original Prompt: {prompt}\n"
+                            f"Sandbox Failure Output: {pg_out[:500]}\n"
+                            "Output ONLY the search query."
+                        )
+                        search_term = self._call_model(router_llm, search_opt_p, max_tokens=30, temperature=0.1).strip()
+                        search_term = search_term.replace('"', '').replace('`', '').strip()
+                        if not search_term or len(search_term) < 5:
+                            search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                        
+                        if status_callback:
+                            status_callback(f"Emergency Search: '{search_term}'...", "info", "router", 36 + rnd*10)
+                        
+                        web_res = self.web_search.search(search_term, max_results=3)
+                        if web_res:
+                            helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                    except Exception:
+                        pass
 
-            # ── Phase 3: VibeThinker — Write Code ────────────────────────
-            if status_callback:
-                status_callback("VibeThinker writing code...", "info", "vibethinker", 50)
-            vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
-            # Truncate compiled_plan to fit context
-            max_code_prompt_chars = (ds_ctx - gen_tokens - 200) * 3
-            plan_for_code = compiled_plan[:max(max_code_prompt_chars, 1500)] if len(compiled_plan) > max_code_prompt_chars else compiled_plan
-            code_p = f"Write a complete Python script for this plan:\n{plan_for_code}\n\nWrap in ```python```."
-            code = Sandbox.extract_code(self._strip_thinking(self._call_model(vibe_llm, code_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
+                    ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+                    search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
+                    fix_p = (
+                        f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
+                        f"{search_str}"
+                        f"Logic plan FAILED verification.\nPlan:\n{ds_draft[:2000]}\n"
+                        f"Error:\n{pg_out[:1000]}\nRewrite a corrected logic plan."
+                    )
+                    ds_draft = self._strip_thinking(self._call_model(ds_llm, fix_p, gen_tokens, logic_temp, system_prompt=planner_sys))
+                    v2, _, _ = self._run_playground(ds_llm, ds_draft, "logic", model_key="deepseek_r1", original_prompt=prompt)
+                    if v2 and status_callback:
+                        status_callback("DeepSeek-R1 corrected the logic plan!", "success", "deepseek_r1", 40 + rnd*10)
+                    elif status_callback:
+                        status_callback("Proceeding with best-effort logic...", "warning", "deepseek_r1", 40 + rnd*10)
+                else:
+                    if status_callback:
+                        status_callback("Logic plan VERIFIED!", "success", "deepseek_r1", 40 + rnd*10)
 
-            # ── Phase 4: Execution Sandbox ───────────────────────────────
-            if status_callback:
-                status_callback("Executing in Sandbox...", "info", "sandbox", 65)
-            ok, output = self.sandbox.execute(code)
-            if ok:
-                self.memory.save(prompt, code)
-                router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
-                viz = self._check_3d_gate(prompt, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                return f"### Logic Plan (Verified)\n{compiled_plan}\n\n### Execution Output\n{output}{viz}\n\n### Code\n```python\n{code}\n```"
+                compiled_plan = ds_draft
 
-            # ── Phase 4.5: Router Linter Intercept (Syntax/Import Errors) ──
-            if not ok:
+                # ── Phase 3: VibeThinker — Write Code ────────────────────────
+                if status_callback:
+                    status_callback(f"VibeThinker writing code (Attempt {rnd+1}/{max_rounds})...", "info", "vibethinker", 50 + rnd*10)
+                vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
+                # Truncate compiled_plan to fit context
+                max_code_prompt_chars = (ds_ctx - gen_tokens - 200) * 3
+                plan_for_code = compiled_plan[:max(max_code_prompt_chars, 1500)] if len(compiled_plan) > max_code_prompt_chars else compiled_plan
+                code_p = f"Write a complete Python script for this plan:\n{plan_for_code}\n\nWrap in ```python```."
+                code = Sandbox.extract_code(self._strip_thinking(self._call_model(vibe_llm, code_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
+
+                # ── Phase 4: Execution Sandbox ───────────────────────────────
+                if status_callback:
+                    status_callback(f"Executing in Sandbox (Attempt {rnd+1}/{max_rounds})...", "info", "sandbox", 60 + rnd*10)
+                ok, output = self.sandbox.execute(code)
+                if ok:
+                    self.memory.save(prompt, code)
+                    if rnd > 0 or reset > 0:
+                        self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
+                    router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                    viz = self._check_3d_gate(prompt, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+                    return f"### Logic Plan (Verified)\n{compiled_plan}\n\n### Execution Output\n{output}{viz}\n\n### Code\n```python\n{code}\n```"
+
+                # Save initial failures to register mistake later
+                if not initial_failed_code:
+                    initial_failed_code = code
+                    initial_failed_error = output
+
+                # ── Phase 4.5: Router Linter Intercept (Syntax/Import Errors) ──
                 is_syntax_error = any(e in output for e in ["SyntaxError", "ModuleNotFoundError", "NameError", "IndentationError", "TypeError", "AttributeError", "ValueError"])
                 if is_syntax_error:
                     if status_callback:
-                        status_callback("Router (Phi-3.5) patching syntax error...", "warning", "router", 68)
+                        status_callback("Router (Phi-3.5) patching syntax error...", "warning", "router", 65 + rnd*10)
                     router_linter = self._get_model("router", required_ctx=router_ctx)
                     lint_p = (
                         f"You are a fast Python Syntax Linter.\n"
@@ -2156,98 +2172,87 @@ class AgentOrchestrator:
                             output = linter_output
                             ok = True
                             if status_callback:
-                                status_callback("Router Linter successfully patched the code!", "success", "router", 70)
+                                status_callback("Router Linter successfully patched the code!", "success", "router", 70 + rnd*10)
                             self.memory.save(prompt, code)
+                            if rnd > 0 or reset > 0:
+                                self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
                             router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                             viz = self._check_3d_gate(prompt, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                             return f"### Logic Plan (Verified)\n{compiled_plan}\n\n### Execution Output\n{output}{viz}\n\n### Code\n```python\n{code}\n```"
-            
-            # ── Phase 5 & 6: Reflexion Loops ────────────────────────────────
-            if not ok:
-                # Fetch quick helper web search context
-                helper_search_context = ""
-                try:
-                    search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
-                    web_res = self.web_search.search(search_term, max_results=3)
-                    if web_res:
-                        helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
-                except Exception:
-                    pass
-                search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
+                
+                # ── Phase 5 & 6: Reflexion / Self-Correction ─────────────────
+                if not ok:
+                    # Fetch quick helper web search context
+                    helper_search_context = ""
+                    try:
+                        search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                        web_res = self.web_search.search(search_term, max_results=3)
+                        if web_res:
+                            helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                    except Exception:
+                        pass
+                    search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
 
-                # ── Phase 5: Shallow Fix (VibeThinker) ───────────────────────
-                if status_callback:
-                    status_callback("VibeThinker fixing code...", "warning", "vibethinker", 72)
-                failed_code = code
-                failed_error = output
-                # Structured error analysis for smarter fixing
-                safe_code = code[:2000] if len(code) > 2000 else code
-                safe_error = output[:800] if len(output) > 800 else output
-                fix_p = (
-                    f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
-                    f"{search_str}"
-                    f"The following Python code FAILED with an error.\n\n"
-                    f"CODE:\n{safe_code}\n\n"
-                    f"ERROR:\n{safe_error}\n\n"
-                    f"INSTRUCTIONS:\n"
-                    f"1. Identify the exact line and cause of the error\n"
-                    f"2. Fix ONLY the bug — do not rewrite unrelated parts\n"
-                    f"3. Make sure all imports are present\n"
-                    f"4. Test edge cases (division by zero, empty arrays, etc.)\n"
-                )
-                # Add error-specific recovery hints
-                if 'TimeoutError' in safe_error or 'took longer than' in safe_error:
-                    fix_p += (
-                        f"5. TIMEOUT FIX: The code took too long. Reduce computation — use smaller arrays, "
-                        f"fewer iterations, vectorized numpy operations instead of Python loops, or reduce simulation time span.\n"
+                    # DeepSeek-R1 corrects the code (cached model correction)
+                    if status_callback:
+                        status_callback(f"DeepSeek-R1 correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "deepseek_r1", 75 + rnd*10)
+                    failed_code = code
+                    failed_error = output
+                    safe_code = code[:2000] if len(code) > 2000 else code
+                    safe_error = output[:800] if len(output) > 800 else output
+                    
+                    fix_p = (
+                        f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
+                        f"{search_str}"
+                        f"The following Python code FAILED with an error.\n\n"
+                        f"CODE:\n{safe_code}\n\n"
+                        f"ERROR:\n{safe_error}\n\n"
+                        f"INSTRUCTIONS:\n"
+                        f"1. Identify the exact line and cause of the error\n"
+                        f"2. Fix ONLY the bug — do not rewrite unrelated parts\n"
+                        f"3. Make sure all imports are present\n"
+                        f"4. Test edge cases (division by zero, empty arrays, etc.)\n"
                     )
-                elif 'MemoryError' in safe_error or 'RLIMIT' in safe_error or 'Cannot allocate' in safe_error:
-                    fix_p += (
-                        f"5. MEMORY FIX: The code used too much memory. Use generators instead of lists, "
-                        f"process data in chunks, use smaller array sizes, or use float32 instead of float64.\n"
-                    )
-                elif 'ModuleNotFoundError' in safe_error:
-                    fix_p += (
-                        f"5. IMPORT FIX: A required module is not installed. Replace it with a standard library alternative "
-                        f"or one of these pre-installed packages: numpy, scipy, sympy, pandas, sklearn, plotly, matplotlib, networkx, cryptography.\n"
-                    )
-                fix_p += f"6. Output the COMPLETE corrected script in ```python``` blocks."
-                code = Sandbox.extract_code(self._strip_thinking(self._call_model(vibe_llm, fix_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
-                ok, output = self.sandbox.execute(code)
-                if ok:
-                    self.memory.save(prompt, code)
-                    self.memory.save_mistake(prompt, failed_code, failed_error, code)
-                    router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
-                    viz = self._check_3d_gate(prompt, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                    return f"### Logic Plan (Verified)\n{compiled_plan}\n\n### Execution Output\n{output}{viz}\n\n### Code\n```python\n{code}\n```"
+                    # Add error-specific recovery hints
+                    if 'TimeoutError' in safe_error or 'took longer than' in safe_error:
+                        fix_p += (
+                            f"5. TIMEOUT FIX: The code took too long. Reduce computation — use smaller arrays, "
+                            f"fewer iterations, vectorized numpy operations instead of Python loops, or reduce simulation time span.\n"
+                        )
+                    elif 'MemoryError' in safe_error or 'RLIMIT' in safe_error or 'Cannot allocate' in safe_error:
+                        fix_p += (
+                            f"5. MEMORY FIX: The code used too much memory. Use generators instead of lists, "
+                            f"process data in chunks, use smaller array sizes, or use float32 instead of float64.\n"
+                        )
+                    elif 'ModuleNotFoundError' in safe_error:
+                        fix_p += (
+                            f"5. IMPORT FIX: A required module is not installed. Replace it with a standard library alternative "
+                            f"or one of these pre-installed packages: numpy, scipy, sympy, pandas, sklearn, plotly, matplotlib, networkx, cryptography.\n"
+                        )
+                    fix_p += f"6. Output the COMPLETE corrected script in ```python``` blocks."
 
-                # ── Phase 6: Deep Escalation (DeepSeek-R1 — rewrite script) ──
-                if status_callback:
-                    status_callback("Deep Escalation: DeepSeek-R1 rewriting...", "warning", "deepseek_r1", 80)
-                ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
-                esc_p = (
-                    f"ORIGINAL USER REQUEST CONSTRAINTS:\n{prompt}\n\n"
-                    f"{search_str}"
-                    f"Code failed TWICE. You MUST fix it.\nPlan:\n{compiled_plan[:1500]}\n"
-                    f"Code:\n{code[:2000]}\nError:\n{output[:800]}\n"
-                    f"Rewrite the ENTIRE script from scratch in ```python```. Think step by step."
-                )
-                esc_resp = self._strip_thinking(self._call_model(ds_llm, esc_p, gen_tokens, gen_temp, system_prompt=coder_sys))
-                if "```" in esc_resp:
-                    code = Sandbox.extract_code(esc_resp)
+                    ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+                    code = Sandbox.extract_code(self._strip_thinking(self._call_model(ds_llm, fix_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
                     ok, output = self.sandbox.execute(code)
                     if ok:
+                        if status_callback:
+                            status_callback("DeepSeek-R1's correction VERIFIED!", "success", "deepseek_r1", 80 + rnd*10)
                         self.memory.save(prompt, code)
                         self.memory.save_mistake(prompt, failed_code, failed_error, code)
                         router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         return f"### Logic Plan (Verified)\n{compiled_plan}\n\n### Execution Output\n{output}{viz}\n\n### Code\n```python\n{code}\n```"
 
+                    # Don't let ds_safe grow unboundedly — cap the appended errors
+                    error_summary = output[:300]
+                    if len(ds_safe) + len(error_summary) < (ds_ctx - gen_tokens - 200) * 3:
+                        ds_safe = f"{ds_safe}\n\nPrevious execution error: {error_summary}"
+
             # ── Phase 7: Nuclear Reset ───────────────────────────────────
-            all_errors.append(f"Round {reset+1}: {output[:500]}")
+            all_errors.append(f"Reset {reset+1}: {output[:500]}")
             if reset < max_resets - 1:
                 if status_callback:
-                    status_callback(f"Nuclear Reset: Extracting lessons...", "error", "deepseek_r1", 85)
+                    status_callback(f"Nuclear Reset: Extracting lessons from failures...", "error", "deepseek_r1", 85)
                 ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
                 lessons = self._extract_failure_lessons(ds_llm, compiled_plan, "\n".join(all_errors))
 
