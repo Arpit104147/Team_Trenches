@@ -28,6 +28,39 @@ LOOP_PATTERNS = [
     r'while\s*\(\s*true\s*\)',      # C/C++ infinite loop: while(true)
 ]
 
+# ── Common module-to-pip-package name mappings ───────────────────────────
+# Many Python modules have pip package names that differ from their import name.
+PIP_PACKAGE_MAP = {
+    'cv2': 'opencv-python',
+    'PIL': 'Pillow',
+    'sklearn': 'scikit-learn',
+    'yaml': 'pyyaml',
+    'bs4': 'beautifulsoup4',
+    'attr': 'attrs',
+    'dateutil': 'python-dateutil',
+    'dotenv': 'python-dotenv',
+    'jose': 'python-jose',
+    'serial': 'pyserial',
+    'usb': 'pyusb',
+    'Crypto': 'pycryptodome',
+    'OpenSSL': 'pyopenssl',
+    'github': 'PyGithub',
+    'telegram': 'python-telegram-bot',
+    'discord': 'discord.py',
+    'jwt': 'pyjwt',
+    'Bio': 'biopython',
+    'wx': 'wxPython',
+    'gi': 'pygobject',
+    'magic': 'python-magic',
+    'docx': 'python-docx',
+    'pptx': 'python-pptx',
+    'xlrd': 'xlrd',
+    'openpyxl': 'openpyxl',
+}
+
+# Maximum output characters returned from sandbox (prevents context overflow)
+MAX_OUTPUT_CHARS = 8000
+
 # ── Language Detection Heuristics ────────────────────────────────────────
 # Strong indicators for each supported language
 LANG_SIGNATURES = {
@@ -324,6 +357,53 @@ class Sandbox:
     def __init__(self, timeout=300):
         self.timeout = timeout
 
+    # ── Utility Methods ──────────────────────────────────────────────────
+    @staticmethod
+    def _strip_ansi(text):
+        """Strip ANSI escape codes (color, cursor, etc.) from text for cleaner output."""
+        return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+
+    @staticmethod
+    def _truncate_output(output, max_chars=MAX_OUTPUT_CHARS):
+        """Truncate sandbox output to prevent context overflow, preserving head and tail."""
+        if not output or len(output) <= max_chars:
+            return output
+        head = max_chars // 2
+        tail = max_chars // 2
+        return (
+            output[:head]
+            + f"\n\n... [OUTPUT TRUNCATED: {len(output):,} chars total, showing first {head:,} and last {tail:,}] ...\n\n"
+            + output[-tail:]
+        )
+
+    def _auto_install_missing_module(self, error_output):
+        """Parse ModuleNotFoundError from sandbox output and auto-install the missing pip package."""
+        match = re.search(r"ModuleNotFoundError: No module named '([^']+)'", error_output)
+        if not match:
+            return False
+
+        module_name = match.group(1).split('.')[0]  # Get top-level module
+        pip_name = PIP_PACKAGE_MAP.get(module_name, module_name)
+
+        print(f"📦 Auto-installing missing package: {pip_name} (module: {module_name})")
+        try:
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', pip_name, '--quiet', '--disable-pip-version-check'],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0:
+                print(f"✅ Successfully installed {pip_name}")
+                return True
+            else:
+                print(f"❌ Failed to install {pip_name}: {result.stderr[:300]}")
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"❌ Timed out installing {pip_name}")
+            return False
+        except Exception as e:
+            print(f"❌ Auto-install error: {e}")
+            return False
+
     def _detect_gui(self, code):
         """Check if the code imports or uses any GUI library that would hang."""
         for sig in GUI_SIGNATURES:
@@ -585,12 +665,12 @@ class Sandbox:
                         return self._execute_python_unrestricted(code, loop_pattern)
 
                     if result.get("success"):
-                        output = result.get("output", "").strip()
+                        output = self._strip_ansi(result.get("output", "").strip())
                         if not output:
                             output = "(Code executed successfully with no output)"
-                        return True, f"🔒 [Restricted Sandbox]\n{output}"
+                        return True, self._truncate_output(f"🔒 [Restricted Sandbox]\n{output}")
                     else:
-                        return False, result.get("error", "Unknown error in restricted sandbox")
+                        return False, self._truncate_output(result.get("error", "Unknown error in restricted sandbox"))
 
                 except json.JSONDecodeError:
                     # Runner produced non-JSON output — something unexpected happened
@@ -653,13 +733,30 @@ class Sandbox:
                 timeout=self.timeout
             )
             if res.returncode == 0:
-                output = res.stdout
+                output = self._strip_ansi(res.stdout)
                 if res.stderr:
-                    output += "\nWarnings/Stderr:\n" + res.stderr
-                return True, f"⚠️ [Unrestricted Fallback]\n{output.strip()}"
+                    output += "\nWarnings/Stderr:\n" + self._strip_ansi(res.stderr)
+                return True, self._truncate_output(f"⚠️ [Unrestricted Fallback]\n{output.strip()}")
             else:
                 error = res.stderr if res.stderr else res.stdout
-                return False, error.strip()
+                error_str = self._strip_ansi(error.strip())
+
+                # ── Auto-pip: Install missing modules and retry once ──────
+                if 'ModuleNotFoundError' in error_str and self._auto_install_missing_module(error_str):
+                    res2 = subprocess.run(
+                        [sys.executable, path],
+                        capture_output=True, text=True, timeout=self.timeout
+                    )
+                    if res2.returncode == 0:
+                        output2 = self._strip_ansi(res2.stdout)
+                        if res2.stderr:
+                            output2 += "\nWarnings/Stderr:\n" + self._strip_ansi(res2.stderr)
+                        return True, self._truncate_output(f"📦 [Auto-installed package + Executed]\n{output2.strip()}")
+                    else:
+                        error2 = res2.stderr if res2.stderr else res2.stdout
+                        return False, self._truncate_output(self._strip_ansi(error2.strip()))
+
+                return False, self._truncate_output(error_str)
         except subprocess.TimeoutExpired:
             if loop_pattern:
                 return True, (
