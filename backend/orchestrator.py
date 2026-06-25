@@ -2041,12 +2041,12 @@ class AgentOrchestrator:
             context_blocks.append(f"Web Context:\n{web_context}")
         if past_experience:
             context_blocks.append(
-                f"=== REFERENCE PAST EXPERIENCE ===\n"
-                f"The following is a reference of how similar tasks were solved in the past. "
-                f"Use it ONLY for code structure, syntax style, or API reference. "
-                f"Do NOT copy this system's details or solve this system; focus entirely on the active User Query below.\n\n"
+                f"=== VERIFIED SCIENTIFIC REFERENCE KNOWLEDGE ===\n"
+                f"The following is a verified, ground-truth physics/math/code derivation. "
+                f"Study the exact mathematical formulas, integration boundaries, syntax, and logic used in this reference. "
+                f"You must strictly apply these exact same proven physical principles and mathematical techniques to solve the User's new query.\n\n"
                 f"{past_experience.strip()}\n"
-                f"================================="
+                f"==============================================="
             )
             
         context_str = "\n\n".join(context_blocks)
@@ -2738,16 +2738,6 @@ class AgentOrchestrator:
         # Must check this BEFORE loading ds_llm to prevent EVM from evicting router_llm
         use_playground = self._is_playground_applicable(router_llm, prompt)
 
-        if use_playground and "=== REFERENCE PAST EXPERIENCE ===" in enriched_prompt:
-            start_marker = "=== REFERENCE PAST EXPERIENCE ==="
-            end_marker = "================================="
-            start_idx = enriched_prompt.find(start_marker)
-            end_idx = enriched_prompt.find(end_marker, start_idx)
-            if start_idx != -1 and end_idx != -1:
-                enriched_prompt = (
-                    enriched_prompt[:start_idx].rstrip() + "\n\n" +
-                    enriched_prompt[end_idx + len(end_marker):].lstrip()
-                )
 
         ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - self.max_tokens, status_callback, router_llm=router_llm)
 
