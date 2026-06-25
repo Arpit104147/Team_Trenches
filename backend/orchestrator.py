@@ -2333,18 +2333,14 @@ class AgentOrchestrator:
 
     def _synthesize_coding_response(self, prompt, compiled_plan, code, output,
                                    router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback=None, req_lang="python"):
-        """Synthesize a beautiful, reasoning-like structured response from successful execution."""
+        """Compiles a beautiful, deterministic markdown report from successful execution without an extra LLM call."""
         if status_callback:
-            status_callback("Synthesizing final response...", "info", "deepseek_r1", 85)
-        
-        # Load deepseek_r1 to synthesize the response
-        ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+            status_callback("Compiling verified response...", "info", "system", 95)
         
         # Strip raw Plotly/JSON dumps from sandbox output to prevent context window blowout
         # and raw JSON leaking into the final user-facing response.
         clean_output = output
         if clean_output and len(clean_output) > 2000:
-            # Detect and strip Plotly JSON (starts with { and contains "data":[ or "layout":)
             import re
             # Remove any large JSON blob (likely fig.to_json() output)
             json_pattern = re.compile(r'\{"data":\[.*?\}\}\}', re.DOTALL)
@@ -2353,6 +2349,9 @@ class AgentOrchestrator:
             if len(stripped) > 2000:
                 stripped = stripped[:2000] + '\n... [OUTPUT TRUNCATED]'
             clean_output = stripped
+            
+        if not clean_output:
+            clean_output = "(Code executed successfully with no output)"
         
         lang_name = {
             "python": "Python",
@@ -2366,35 +2365,27 @@ class AgentOrchestrator:
             "rust": "Rust"
         }.get(req_lang, req_lang)
 
-        synthesis_p = (
-            "You are a technical data scientist and senior software engineer.\n"
-            f"The user query was:\n{prompt}\n\n"
-            f"The {lang_name} script executed successfully in the sandbox.\n"
-            f"SCRIPT CODE:\n```{req_lang}\n{code}\n```\n\n"
-            f"SCRIPT EXECUTION OUTPUT:\n{clean_output}\n\n"
-            "INSTRUCTIONS:\n"
-            "1. Generate a beautifully structured, comprehensive explanation of the results.\n"
-            "2. Present any numerical results, performance metrics, or tables in a clean, publication-grade Markdown format.\n"
-            "3. Explain how unit checking and dimensional consistency constraints have been satisfied.\n"
-            f"4. End your response with the complete {lang_name} code block wrapped in ```{req_lang}``` so the user can copy it.\n"
-            "5. Do NOT include any meta-commentary about the model execution or pipeline steps. Output only the polished technical response.\n"
-            "6. Do NOT include raw JSON data dumps in your response. If the code generated a Plotly chart, mention that the visualization is rendered in the UI."
+        # Construct a beautiful, clean, deterministic response report
+        final_response = (
+            f"### 💡 Logic & Architectural Plan\n"
+            f"{compiled_plan.strip()}\n\n"
+            f"### ⚙️ Sandbox Execution Output\n"
+            f"```text\n"
+            f"{clean_output.strip()}\n"
+            f"```\n\n"
+            f"### 💻 Verified Working Code\n"
+            f"The complete, fully verified functional {lang_name} script is presented below:\n\n"
+            f"```{req_lang}\n"
+            f"{code.strip()}\n"
+            f"```"
         )
         
-        final_response = self._strip_thinking(self._call_model(
-            ds_llm, 
-            synthesis_p, 
-            gen_tokens, 
-            gen_temp, 
-            system_prompt=f"You are a senior {lang_name} data scientist. Output a polished, professional markdown report."
-        ))
-        
-        # Apply strict defensive layout formatting filter
-        final_response = self._clean_synthesis_format(final_response, code, req_lang=req_lang)
-        
+        # Check if a 3D visualization needs to be generated and appended
         viz = self._check_3d_gate(prompt, final_response, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+        
         if status_callback:
             status_callback("Done!", "success", "router", 100)
+            
         return f"{final_response}{viz}"
 
     # =====================================================================
