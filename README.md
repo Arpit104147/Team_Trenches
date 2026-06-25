@@ -295,6 +295,7 @@ To maximize accuracy, performance, and stability on consumer hardware, the follo
 * **Multi-Tiered Intent Classification:** Overhauled task classification into four stages: Tier 1 structural pattern checks (raw code block/traceback fast-tracks), Tier 2 deterministic domain overrides (automatically routing data science prompts containing terms like pandas, numpy, or plotly layout to CODING), Tier 3 few-shot prompting, and Tier 4 fallback scans.
 * **Auto-pip Package Installer:** The sandbox executor now dynamically detects runtime `ModuleNotFoundError` during code execution, triggers a pip installation on the fly, and re-executes the script seamlessly.
 * **Interactive 3D Gate Suggestion:** Rather than forcing rendering overhead on every compatible prompt, the orchestrator detects 3D options and prompts the user dynamically, allowing them to trigger 3D generation by responding `generate 3d`.
+* **Memory Contamination Guard (Playground-Verified Reasoning):** Strips past experience from the prompt context when playground verification is active to prevent DeepSeek-R1 from copying imprecise/stale formulas from historical RAG records, enforcing first-principles derivation on repeated queries.
 
 ---
 
