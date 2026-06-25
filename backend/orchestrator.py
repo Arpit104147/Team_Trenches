@@ -3117,7 +3117,7 @@ class AgentOrchestrator:
 
             router_llm = None; ds_llm = None; gc.collect()
             viz = self._check_3d_gate(prompt, final_ans, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-            return f"### Verified Answer\n{final_ans}{viz}"
+            return f"### Execution Failed (Best-Effort Draft)\n{final_ans}{viz}"
 
         else:
             # ── Standard LLM Debate (non-testable reasoning) ─────────────
@@ -3130,5 +3130,5 @@ class AgentOrchestrator:
             viz = self._check_3d_gate(prompt, compiled, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
             if status_callback:
                 status_callback("Done!", "success", "router", 100)
-            return f"{compiled}{viz}"
+            return f"### Successfully Generated Answer\n{compiled}{viz}"
 
