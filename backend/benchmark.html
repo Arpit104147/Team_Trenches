@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepThinker - TPU v5e-8 Benchmark Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .glass {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+        .glass-hover:hover {
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(15, 23, 42, 0.75);
+            transform: translateY(-2px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .tpu-glow {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+        .tpu-pulse {
+            animation: pulse 1.5s infinite alternate;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); }
+            100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.8); }
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.3);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="p-6 md:p-8">
+    <div class="max-w-7xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <header class="glass rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 border border-blue-500/20">
+            <div class="flex items-center gap-4">
+                <div class="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-3xl shadow-lg shadow-blue-500/30">
+                    🧠
+                    <span class="absolute -bottom-1 -right-1 flex h-4 w-4">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                    </span>
+                </div>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                        DeepThinker
+                    </h1>
+                    <p class="text-sm md:text-base text-slate-400 font-medium">
+                        TPU v5e-8 Distributed Benchmark Dashboard
+                    </p>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold text-sm flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    TPU Node Ready
+                </div>
+                <div class="px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-semibold text-sm">
+                    8-Way Parallelism
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Left Controls Panel -->
+            <div class="space-y-6 lg:col-span-1">
+                <div class="glass rounded-3xl p-6 border border-slate-800">
+                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
+                        ⚙️ Controller Panel
+                    </h2>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Benchmark Target</label>
+                            <select id="benchmarkCategory" class="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 transition font-medium">
+                                <option value="HumanEval">HumanEval (Coding)</option>
+                                <option value="MBPP">MBPP (Coding)</option>
+                                <option value="GSM8K">GSM8K (Math Reasoning)</option>
+                                <option value="MATH">MATH (Advanced Math)</option>
+                                <option value="SWE-bench Lite">SWE-bench Lite (Engineering)</option>
+                                <option value="SWE-bench Pro">SWE-bench Pro (Enterprise SWE)</option>
+                                <option value="SearchQA / HotpotQA">SearchQA / HotpotQA (Web RAG)</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Sample Size (Problems)</label>
+                            <input id="sampleSize" type="number" value="50" min="5" max="5000" class="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 transition font-medium mono">
+                        </div>
+
+                        <div class="pt-2 flex gap-3">
+                            <button id="btnStart" onclick="startBenchmark()" class="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 font-semibold shadow-lg shadow-blue-500/20 active:scale-[0.98] transition">
+                                Start Evaluation
+                            </button>
+                            <button id="btnStop" onclick="stopBenchmark()" class="py-3.5 px-6 rounded-xl bg-slate-800 hover:bg-red-600/20 hover:border-red-500/30 border border-slate-700 text-slate-300 font-semibold active:scale-[0.98] transition">
+                                Stop
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Metrics Card -->
+                <div class="glass rounded-3xl p-6 border border-slate-800 relative overflow-hidden">
+                    <div class="absolute -right-16 -top-16 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl"></div>
+                    
+                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
+                        📊 Live KPI Performance
+                    </h2>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
+                            <span class="block text-xs text-slate-400 font-medium mb-1">Accuracy / Pass@1</span>
+                            <div class="text-2xl font-bold text-blue-400 mono" id="metricAccuracy">0.0%</div>
+                        </div>
+                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
+                            <span class="block text-xs text-slate-400 font-medium mb-1">TPU Throughput</span>
+                            <div class="text-2xl font-bold text-emerald-400 mono" id="metricThroughput">0.0 t/s</div>
+                        </div>
+                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
+                            <span class="block text-xs text-slate-400 font-medium mb-1">Avg. Latency</span>
+                            <div class="text-2xl font-bold text-purple-400 mono" id="metricLatency">0.0s</div>
+                        </div>
+                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
+                            <span class="block text-xs text-slate-400 font-medium mb-1">Total Time</span>
+                            <div class="text-2xl font-bold text-slate-300 mono" id="metricTime">0.0s</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center/Right Details Panel -->
+            <div class="space-y-6 lg:col-span-2">
+                
+                <!-- Live Progress Tracking -->
+                <div class="glass rounded-3xl p-6 border border-slate-800">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-bold text-slate-200 flex items-center gap-2">
+                            ⚡ TPU Core Topology Status
+                        </h2>
+                        <span class="text-sm font-medium text-slate-400 mono" id="progressText">0 / 0</span>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div class="w-full bg-slate-950/80 rounded-full h-3.5 mb-6 overflow-hidden border border-slate-800">
+                        <div id="progressBar" class="bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 h-full w-0 rounded-full transition-all duration-500"></div>
+                    </div>
+
+                    <!-- TPU Cores Grid -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="tpuCoresContainer">
+                        <!-- Cores will be dynamically rendered -->
+                    </div>
+                </div>
+
+                <!-- Comparison to Baselines -->
+                <div class="glass rounded-3xl p-6 border border-slate-800">
+                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
+                        🏆 Competitive Baseline Comparison
+                    </h2>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                    <th class="py-3 px-4">Evaluation Benchmark</th>
+                                    <th class="py-3 px-4 text-center">GPT-4</th>
+                                    <th class="py-3 px-4 text-center">Claude 3.5 Sonnet</th>
+                                    <th class="py-3 px-4 text-center">Llama-3-70B</th>
+                                    <th class="py-3 px-4 text-center text-blue-400">DeepThinker (Local TPU)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-sm text-slate-300 font-medium" id="baselineTableBody">
+                                <!-- Dynamic baselines -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Live Stream Console Log -->
+                <div class="glass rounded-3xl p-6 border border-slate-800">
+                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center justify-between">
+                        <span>📝 Real-Time Evaluation Logs</span>
+                        <span class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 mono">Host: TPU-v5e-8-node</span>
+                    </h2>
+                    <div id="consoleLogs" class="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 h-64 overflow-y-auto font-medium mono text-xs leading-relaxed text-slate-300 space-y-2">
+                        <div class="text-slate-500">[System] Dashboard initialized. Select a benchmark and click "Start".</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let updateInterval = null;
+
+        // Initialize TPU cores
+        function renderTpuCores(workers) {
+            const container = document.getElementById("tpuCoresContainer");
+            container.innerHTML = "";
+            
+            workers.forEach((worker, index) => {
+                const isActive = worker.status !== "Idle";
+                const borderClass = isActive ? "border-blue-500/40 bg-blue-500/5" : "border-slate-800 bg-slate-950/20";
+                const pulseClass = isActive ? "tpu-pulse bg-blue-500" : "bg-slate-700";
+                const glowClass = isActive ? "tpu-glow" : "";
+                
+                container.innerHTML += `
+                    <div class="border ${borderClass} rounded-2xl p-4 text-center relative overflow-hidden transition-all duration-300 ${glowClass}">
+                        <div class="absolute top-2 right-2 flex h-2.5 w-2.5">
+                            <span class="${isActive ? 'animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75' : ''}"></span>
+                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 ${pulseClass}"></span>
+                        </div>
+                        <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Core ${index}</div>
+                        <div class="text-sm font-bold text-slate-200 truncate max-w-full">${worker.task}</div>
+                        <div class="text-[10px] text-slate-400 mt-1 font-medium italic truncate">${worker.status}</div>
+                    </div>
+                `;
+            });
+        }
+
+        // Render baseline comparison table
+        function renderBaselines(currentCategory, currentAccuracy) {
+            const tableBody = document.getElementById("baselineTableBody");
+            
+            // Raw static data
+            const baselines = {
+                "HumanEval": { name: "HumanEval (Coding)", gpt4: "90.2%", sonnet: "92.0%", llama3: "86.0%", target: "HumanEval" },
+                "MBPP": { name: "MBPP (Coding)", gpt4: "86.4%", sonnet: "90.5%", llama3: "81.2%", target: "MBPP" },
+                "GSM8K": { name: "GSM8K (Math Reasoning)", gpt4: "92.0%", sonnet: "96.4%", llama3: "93.0%", target: "GSM8K" },
+                "MATH": { name: "MATH (Advanced Algebra/Calculus)", gpt4: "42.5%", sonnet: "71.1%", llama3: "41.0%", target: "MATH" },
+                "SWE-bench Lite": { name: "SWE-bench Lite (SWE)", gpt4: "13.0%", sonnet: "27.3%", llama3: "3.8%", target: "SWE-bench Lite" },
+                "SWE-bench Pro": { name: "SWE-bench Pro (SWE Enterprise)", gpt4: "8.0%", sonnet: "18.2%", llama3: "1.5%", target: "SWE-bench Pro" },
+                "SearchQA / HotpotQA": { name: "SearchQA / HotpotQA (RAG)", gpt4: "85.0%", sonnet: "88.0%", llama3: "82.0%", target: "SearchQA / HotpotQA" }
+            };
+
+            tableBody.innerHTML = "";
+            Object.keys(baselines).forEach(key => {
+                const item = baselines[key];
+                const isCurrent = key === currentCategory;
+                const rowHighlight = isCurrent ? "bg-blue-500/5 border-l-2 border-l-blue-500" : "border-b border-slate-900";
+                const displayAccuracy = isCurrent ? `${currentAccuracy}%` : "N/A (Pending)";
+                
+                tableBody.innerHTML += `
+                    <tr class="${rowHighlight} transition">
+                        <td class="py-3 px-4 text-slate-300 font-semibold">${item.name}</td>
+                        <td class="py-3 px-4 text-center text-slate-400 mono">${item.gpt4}</td>
+                        <td class="py-3 px-4 text-center text-slate-400 mono">${item.sonnet}</td>
+                        <td class="py-3 px-4 text-center text-slate-400 mono">${item.llama3}</td>
+                        <td class="py-3 px-4 text-center text-blue-400 font-bold mono bg-blue-500/5">${displayAccuracy}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Fetch updates from backend
+        async function fetchStatus() {
+            try {
+                const res = await fetch("/api/benchmark/status");
+                const state = await res.json();
+                
+                // Update stats
+                document.getElementById("metricAccuracy").innerText = `${state.accuracy}%`;
+                document.getElementById("metricThroughput").innerText = `${state.tokens_per_sec} t/s`;
+                document.getElementById("metricLatency").innerText = `${state.avg_latency}s`;
+                document.getElementById("metricTime").innerText = `${state.elapsed_seconds}s`;
+                
+                // Progress
+                const progressText = `${state.progress} / ${state.total}`;
+                document.getElementById("progressText").innerText = progressText;
+                
+                const pct = state.total > 0 ? (state.progress / state.total) * 100 : 0;
+                document.getElementById("progressBar").style.width = `${pct}%`;
+                
+                // Active Core display
+                renderTpuCores(state.workers);
+                
+                // Baseline tables
+                renderBaselines(state.category, state.accuracy);
+                
+                // Logs stream
+                const logContainer = document.getElementById("consoleLogs");
+                // Only rewrite log content if there's a difference in log count
+                const logElements = logContainer.getElementsByTagName("div");
+                if (logElements.length !== state.logs.length) {
+                    logContainer.innerHTML = state.logs.map(log => {
+                        let colorClass = "text-slate-300";
+                        if (log.includes("✅")) colorClass = "text-emerald-400 font-bold";
+                        if (log.includes("❌")) colorClass = "text-red-400 font-bold";
+                        if (log.includes("🚀") || log.includes("🏁")) colorClass = "text-blue-400 font-bold";
+                        return `<div class="${colorClass}">${log}</div>`;
+                    }).join("");
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+
+                // Handle button states
+                if (state.active) {
+                    document.getElementById("btnStart").disabled = true;
+                    document.getElementById("btnStart").classList.add("opacity-50", "cursor-not-allowed");
+                } else {
+                    document.getElementById("btnStart").disabled = false;
+                    document.getElementById("btnStart").classList.remove("opacity-50", "cursor-not-allowed");
+                    if (updateInterval && state.progress === state.total) {
+                        clearInterval(updateInterval);
+                        updateInterval = null;
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching status:", err);
+            }
+        }
+
+        async function startBenchmark() {
+            const category = document.getElementById("benchmarkCategory").value;
+            const size = document.getElementById("sampleSize").value;
+            
+            try {
+                const res = await fetch("/api/benchmark/start", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ category: category, sample_size: parseInt(size) })
+                });
+                const data = await res.json();
+                
+                if (data.status === "started") {
+                    if (!updateInterval) {
+                        updateInterval = setInterval(fetchStatus, 1000);
+                    }
+                    setTimeout(fetchStatus, 200);
+                }
+            } catch (err) {
+                console.error("Error starting benchmark:", err);
+            }
+        }
+
+        async function stopBenchmark() {
+            try {
+                await fetch("/api/benchmark/stop", { method: "POST" });
+                setTimeout(fetchStatus, 200);
+            } catch (err) {
+                console.error("Error stopping benchmark:", err);
+            }
+        }
+
+        // Initial setup
+        renderTpuCores(BENCHMARK_STATE.workers);
+        renderBaselines(null, 0.0);
+        
+        // Auto check status on load
+        fetchStatus();
+        // If benchmark is already active on host, start monitoring immediately
+        setInterval(fetchStatus, 2500); 
+    </script>
+</body>
+</html>

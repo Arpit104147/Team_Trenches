@@ -19,9 +19,11 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
+from fastapi.responses import HTMLResponse
 from backend.memory import Memory
 from backend.downloader import check_models_status, download_model, MODEL_DEFINITIONS
 from backend.orchestrator import AgentOrchestrator
+from backend.benchmark_runner import BENCHMARK_STATE, run_benchmark_suite, STATE_LOCK
 
 app = FastAPI(title="Local Multi-Agent XPU System API")
 
@@ -340,6 +342,45 @@ def unload_models():
     """Unload all models to free system RAM."""
     orchestrator.unload_all_models()
     return {"status": "unloaded"}
+
+# ── Benchmark Endpoints for TPU v5e-8 ─────────────────────────────────────
+
+class BenchmarkStartRequest(BaseModel):
+    category: str
+    sample_size: int
+
+@app.get("/benchmark", response_class=HTMLResponse)
+def get_benchmark_dashboard():
+    """Serve the gorgeous glassmorphic TPU v5e-8 Benchmark Dashboard."""
+    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmark.html")
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    return HTMLResponse(content="<h1>Dashboard file not found.</h1>", status_code=404)
+
+@app.get("/api/benchmark/status")
+def get_benchmark_status():
+    """Retrieve the real-time status of all 8 TPU worker cores and active KPIs."""
+    with STATE_LOCK:
+        # Return a copy to prevent race conditions during serialization
+        return dict(BENCHMARK_STATE)
+
+@app.post("/api/benchmark/start")
+def start_benchmark_suite(req: BenchmarkStartRequest, background_tasks: BackgroundTasks):
+    """Start the parallel TPU v5e-8 benchmark evaluation in the background."""
+    with STATE_LOCK:
+        if BENCHMARK_STATE["active"]:
+            return {"status": "already_running"}
+    
+    background_tasks.add_task(run_benchmark_suite, req.category, req.sample_size, orchestrator)
+    return {"status": "started"}
+
+@app.post("/api/benchmark/stop")
+def stop_benchmark_suite():
+    """Stop the active benchmark evaluation and release the workers."""
+    with STATE_LOCK:
+        BENCHMARK_STATE["active"] = False
+    return {"status": "stopped"}
 
 if __name__ == "__main__":
     import uvicorn
