@@ -108,21 +108,49 @@ class Memory:
         # SQLite Query Fallback
         with sqlite3.connect(self.sqlite_path, timeout=30.0) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, task, doc, embedding FROM memories")
+            cursor.execute("SELECT id, task, doc, metadata, embedding FROM memories")
             rows = cursor.fetchall()
 
         if not rows:
             return ""
 
+        def _prioritize_and_format(scored_items, limit):
+            solutions = []
+            mistakes = []
+            for score, doc, meta_str in scored_items:
+                meta = {}
+                if meta_str:
+                    try:
+                        meta = json.loads(meta_str)
+                    except:
+                        pass
+                if meta.get('type') == 'mistake_fix':
+                    mistakes.append(doc)
+                else:
+                    solutions.append(doc)
+            
+            filtered = solutions[:limit]
+            if len(filtered) < limit and mistakes:
+                filtered.append(mistakes[0])
+            
+            if not filtered:
+                return ""
+            memories = "\n---\n".join(filtered)
+            if len(memories) > 4000:
+                cutoff = memories.rfind('\n\n', 0, 4000)
+                cutoff = cutoff if cutoff != -1 else 4000
+                memories = memories[:cutoff] + "\n\n... [TRUNCATED]"
+            return f"\n\nRelevant past experience:\n{memories}\n"
+
         # Vector search if embed_fn is available and we have embeddings
-        if embed_fn and rows[0][3]:
+        if embed_fn and rows[0][4]:
             try:
                 query_vector = np.array(embed_fn(task))
                 norm_q = np.linalg.norm(query_vector)  # Compute ONCE outside the loop
                 if norm_q == 0:
                     norm_q = 1e-10  # Avoid division by zero
                 scores = []
-                for mem_id, t_task, doc, emb_blob in rows:
+                for mem_id, t_task, doc, meta_str, emb_blob in rows:
                     if emb_blob:
                         emb = np.frombuffer(emb_blob, dtype=np.float32)  # Binary decode (fast)
                         norm_e = np.linalg.norm(emb)
@@ -130,19 +158,13 @@ class Memory:
                             similarity = np.dot(query_vector, emb) / (norm_q * norm_e)
                         else:
                             similarity = 0
-                        scores.append((similarity, doc))
+                        scores.append((similarity, doc, meta_str))
                 
                 # Sort by similarity descending
                 scores.sort(key=lambda x: x[0], reverse=True)
-                top_docs = [doc for score, doc in scores[:n_results] if score > 0.4] # threshold
-                if top_docs:
-                    memories = "\n---\n".join(top_docs)
-                    # Limit memory injection to prevent Context Window OOM while keeping enough context
-                    if len(memories) > 4000:
-                        cutoff = memories.rfind('\n\n', 0, 4000)
-                        cutoff = cutoff if cutoff != -1 else 4000
-                        memories = memories[:cutoff] + "\n\n... [TRUNCATED]"
-                    return f"\n\nRelevant past experience:\n{memories}\n"
+                scored_items = [item for item in scores if item[0] > 0.4] # threshold
+                if scored_items:
+                    return _prioritize_and_format(scored_items, n_results)
             except Exception as e:
                 print(f"SQLite vector similarity search failed: {str(e)}")
 
@@ -174,24 +196,17 @@ class Memory:
             return ""
 
         keyword_scores = []
-        for mem_id, t_task, doc, _ in rows:
+        for mem_id, t_task, doc, meta_str, _ in rows:
             task_words = set(w.strip(",.!?") for w in t_task.lower().split() if w not in STOPWORDS)
             # Find matching keywords
             matches = len(query_words.intersection(task_words))
             # Require at least 2 matching significant words, or 100% of the query terms if query is very short
             if matches >= 2 or (len(query_words) == 1 and matches == 1):
-                keyword_scores.append((matches, doc))
+                keyword_scores.append((matches, doc, meta_str))
                 
         if keyword_scores:
             keyword_scores.sort(key=lambda x: x[0], reverse=True)
-            top_docs = [doc for score, doc in keyword_scores[:n_results]]
-            memories = "\n---\n".join(top_docs)
-            # Limit memory injection to prevent Context Window OOM while keeping enough context
-            if len(memories) > 4000:
-                cutoff = memories.rfind('\n\n', 0, 4000)
-                cutoff = cutoff if cutoff != -1 else 4000
-                memories = memories[:cutoff] + "\n\n... [TRUNCATED]"
-            return f"\n\nRelevant past experience:\n{memories}\n"
+            return _prioritize_and_format(keyword_scores, n_results)
             
         return ""
 
