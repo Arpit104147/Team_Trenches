@@ -122,6 +122,7 @@ class AgentOrchestrator:
         self.web_search = WebSearch()
         self.loaded_models = {}
         self.model_lock = threading.Lock()  # Synchronizes model loads across threads
+        self.inference_lock = threading.Lock()  # Synchronizes generation to prevent llama.cpp C++ deadlocks
         self.model_access_order = []  # LRU tracker: oldest first
         
         # Dual-GPU Setup Detection
@@ -750,12 +751,13 @@ class AgentOrchestrator:
             status_callback("Qwen 2.5-VL parsing image...", "info", "qwen_vl", 5)
         llm = self._get_model("qwen_vl")
         vision_prompt = "Describe this image and extract all text and logic from it."
-        if callable(llm):
-            result = llm(vision_prompt, max_tokens=500)
-            return result if isinstance(result, str) else result['choices'][0]['text']
-        else:
-            res = llm(vision_prompt, max_tokens=500)
-            return res['choices'][0]['text']
+        with self.inference_lock:
+            if callable(llm):
+                result = llm(vision_prompt, max_tokens=500)
+                return result if isinstance(result, str) else result['choices'][0]['text']
+            else:
+                res = llm(vision_prompt, max_tokens=500)
+                return res['choices'][0]['text']
 
     # =========================================================================
     # MAIN AGENTIC PIPELINE
@@ -1022,27 +1024,29 @@ class AgentOrchestrator:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        # Use streaming to support instant cancellation for GGUF/llama-cpp-python models
-        chunks = llm.create_chat_completion(
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stream=True
-        )
-        
-        content_pieces = []
-        for chunk in chunks:
-            if self.cancel_event and self.cancel_event.is_set():
-                raise RuntimeError("Generation cancelled by user.")
+        # Prevent concurrent C++ deadlocks in llama.cpp by serializing the generation
+        with self.inference_lock:
+            # Use streaming to support instant cancellation for GGUF/llama-cpp-python models
+            chunks = llm.create_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True
+            )
             
-            choices = chunk.get('choices', [])
-            if choices:
-                delta = choices[0].get('delta', {})
-                content = delta.get('content', '')
-                if content:
-                    content_pieces.append(content)
-                    
-        return "".join(content_pieces)
+            content_pieces = []
+            for chunk in chunks:
+                if self.cancel_event and self.cancel_event.is_set():
+                    raise RuntimeError("Generation cancelled by user.")
+                
+                choices = chunk.get('choices', [])
+                if choices:
+                    delta = choices[0].get('delta', {})
+                    content = delta.get('content', '')
+                    if content:
+                        content_pieces.append(content)
+                        
+            return "".join(content_pieces)
 
     # =========================================================================
     # DYNAMIC ACTOR-CRITIC VERIFIER PIPELINE — Helper Methods
