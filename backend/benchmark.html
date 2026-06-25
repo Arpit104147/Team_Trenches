@@ -310,7 +310,9 @@
         // Fetch updates from backend
         async function fetchStatus() {
             try {
-                const res = await fetch("/api/benchmark/status");
+                const res = await fetch("/api/benchmark/status", {
+                    headers: { "Bypass-Tunnel-Reminder": "true" }
+                });
                 const state = await res.json();
                 
                 // Update stats
@@ -371,7 +373,10 @@
             try {
                 const res = await fetch("/api/benchmark/start", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { 
+                        "Content-Type": "application/json",
+                        "Bypass-Tunnel-Reminder": "true" 
+                    },
                     body: JSON.stringify({ category: category, sample_size: parseInt(size) })
                 });
                 const data = await res.json();
@@ -389,7 +394,10 @@
 
         async function stopBenchmark() {
             try {
-                await fetch("/api/benchmark/stop", { method: "POST" });
+                await fetch("/api/benchmark/stop", { 
+                    method: "POST",
+                    headers: { "Bypass-Tunnel-Reminder": "true" }
+                });
                 setTimeout(fetchStatus, 200);
             } catch (err) {
                 console.error("Error stopping benchmark:", err);
@@ -407,7 +415,10 @@
             btnIcon.classList.add("animate-spin");
             
             try {
-                const res = await fetch("/api/load_all", { method: "POST" });
+                const res = await fetch("/api/load_all", { 
+                    method: "POST",
+                    headers: { "Bypass-Tunnel-Reminder": "true" }
+                });
                 const data = await res.json();
                 
                 btnIcon.classList.remove("animate-spin");
