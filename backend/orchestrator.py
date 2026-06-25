@@ -2636,7 +2636,7 @@ class AgentOrchestrator:
                             status_callback("Emergency Search Healing SUCCESSFUL!", "success", "deepseek_r1", 100)
                         self.memory.save(prompt, code)
                         self.memory.save_mistake(prompt, failed_code, failed_error, code)
-                        router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback)
         except Exception as es:
             print(f"Emergency web search recovery failed: {es}")
@@ -2656,7 +2656,7 @@ class AgentOrchestrator:
         except Exception as es:
             print(f"Failed to save unverified code draft: {es}")
 
-        router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
         return f"### Logic Plan\n{compiled_plan}\n\n### Execution Failed\n{output}\n\n### Code\n```python\n{code}\n```"
 
     # =====================================================================
@@ -2746,7 +2746,7 @@ class AgentOrchestrator:
                         if status_callback:
                             status_callback("Reasoning VERIFIED!", "success", "deepseek_r1", 80)
                         self.memory.save(prompt, ds_answer)
-                        router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, ds_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         return f"### Verified Answer\n{ds_answer}{viz}"
 
@@ -2793,7 +2793,7 @@ class AgentOrchestrator:
                             status_callback("DeepSeek-R1's correction VERIFIED!", "success", "deepseek_r1", 80)
                         self.memory.save(prompt, vibe_answer)
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
-                        router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         return f"### Verified Answer\n{vibe_answer}{viz}"
                     # Don't let ds_safe grow unboundedly — cap the appended errors
@@ -2860,7 +2860,7 @@ class AgentOrchestrator:
                             status_callback("Emergency Search Healing SUCCESSFUL!", "success", "deepseek_r1", 100)
                         self.memory.save(prompt, vibe_answer)
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
-                        router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                         return f"### Verified Answer\n{vibe_answer}{viz}"
             except Exception as es:
@@ -2884,27 +2884,18 @@ class AgentOrchestrator:
             except Exception as es:
                 print(f"Failed to save unverified reasoning draft: {es}")
 
-            router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+            router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
             viz = self._check_3d_gate(prompt, final_ans, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
             return f"### Verified Answer\n{final_ans}{viz}"
 
         else:
             # ── Standard LLM Debate (non-testable reasoning) ─────────────
             if status_callback:
-                status_callback("DeepSeek-R1 drafting analysis...", "info", "deepseek_r1", 30)
+                status_callback("DeepSeek-R1 drafting analysis...", "info", "deepseek_r1", 50)
             ds_draft = self._strip_thinking(self._call_model(ds_llm, f"Provide a detailed answer:\n{ds_safe}", gen_tokens, gen_temp, system_prompt=reasoning_sys))
 
-            if status_callback:
-                status_callback("DeepSeek-R1 refining answer...", "info", "deepseek_r1", 60)
-            ds_refined = self._strip_thinking(self._call_model(
-                ds_llm, 
-                f"Integrate any improvements and rewrite this draft into a single, polished, and cohesive final response. Do NOT include any meta-commentary, intros, or critique headings. Output only the final response:\n{ds_draft}", 
-                gen_tokens, gen_temp,
-                system_prompt="You are a helpful assistant and a technical writer. Refine the draft for maximum clarity and precision."
-            ))
-
-            compiled = ds_refined
-            router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+            compiled = ds_draft
+            router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
             viz = self._check_3d_gate(prompt, compiled, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
             if status_callback:
                 status_callback("Done!", "success", "router", 100)
