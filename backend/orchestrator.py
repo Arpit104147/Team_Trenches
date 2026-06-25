@@ -1602,9 +1602,9 @@ class AgentOrchestrator:
             return ""
 
         # Check if the user EXPLICITLY asked for a 3D visualization/plot/graph in their prompt
-        explicit_3d_keywords = ["3d", "plot", "graph", "surface plot", "visualize", "visualization", "simulate", "simulation",
-                                "trajectory", "vector field", "dna helix", "dna structure", "protein structure",
-                                "molecular model", "double helix", "three.js", "plotly"]
+        # We only auto-trigger on actual 3D indicators to prevent false positives on standard 2D plots
+        explicit_3d_keywords = ["3d", "surface plot", "trajectory", "vector field", "dna helix", "dna structure", 
+                                "protein structure", "molecular model", "double helix", "three.js", "plotly"]
         user_explicitly_asked_3d = any(kw in prompt_lower for kw in explicit_3d_keywords)
 
         if user_explicitly_asked_3d:
@@ -1642,7 +1642,8 @@ class AgentOrchestrator:
             "5. Translate any Python math into pure JavaScript. Output complete HTML in ```html``` blocks.\n"
             "6. SINGULARITY SAFETY: Bound ranges away from division-by-zero. Clip extreme values.\n"
             "7. For Three.js: use OrbitControls AFTER renderer is appended. Never use non-existent APIs like ArcGeometry.\n"
-            "8. For biological structures (DNA, proteins): use Three.js with realistic colors, MeshPhongMaterial, OrbitControls, auto-rotation, hide axes.\n\n"
+            "8. For biological structures (DNA, proteins): use Three.js with realistic colors, MeshPhongMaterial, OrbitControls, auto-rotation, hide axes.\n"
+            "9. CDNS, IMPORTS & SCOPE: If using Three.js, you MUST load OrbitControls by adding: <script src='https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js'></script> AFTER the main three.js script. Do NOT use ES6 'import' statements in your inline script; assume THREE, OrbitControls, and Plotly are loaded in the global window scope.\n\n"
             f"Topic: {clean_plan}"
         )
 
@@ -1753,7 +1754,8 @@ class AgentOrchestrator:
                 "    c. Compute cyclotron period: T = 2*pi*m / (abs(q) * B_magnitude). Set t_span = (0, N_cycles * T). NEVER hardcode t_span=(0,1) or any non-physics time.\n"
                 "    d. Use t_eval = np.linspace(0, N_cycles*T, N_cycles*200) for smooth curve.\n"
                 "    e. Plot POSITIONS sol.y[0], sol.y[1], sol.y[2] (x, y, z), NOT velocities. Velocity values are ~1e8 scale and will break the plot scale.\n"
-                "    f. Use solve_ivp(..., method='RK45', max_step=T/200, dense_output=False).\n\n"
+                "    f. Use solve_ivp(..., method='RK45', max_step=T/200, dense_output=False).\n"
+                "    g. Set scene aspectmode: always call fig.update_layout(scene=dict(aspectmode='data')) to preserve actual physical scale shapes and prevent squishing.\n\n"
             )
 
         viz_prompt = (
@@ -1762,7 +1764,7 @@ class AgentOrchestrator:
             "RULES:\n"
             "1. Import plotly.graph_objects as go, numpy as np, and from scipy.integrate import solve_ivp for ODEs.\n"
             "2. Create a 3D scatter, surface, or line plot.\n"
-            "3. Use fig.update_layout(template='plotly_dark', margin=dict(l=0,r=0,t=40,b=0)).\n"
+            "3. Use fig.update_layout(template='plotly_dark', margin=dict(l=0,r=0,t=40,b=0)). For physical trajectory/field simulations, also set scene=dict(aspectmode='data') inside update_layout.\n"
             "4. Do NOT use fig.update_scenes(). Do NOT use go.FigureControls(). They do NOT exist.\n"
             "5. Do NOT set background colors manually.\n"
             "6. Do NOT import plotly.subplots, plotly.io, or any other plotly module.\n"
