@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeepThinker - TPU v5e-8 Benchmark Dashboard</title>
+    <title>DeepThinker - Accelerator Benchmark Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
@@ -74,14 +74,14 @@
                         DeepThinker
                     </h1>
                     <p class="text-sm md:text-base text-slate-400 font-medium">
-                        TPU v5e-8 Distributed Benchmark Dashboard
+                        Distributed Accelerator Benchmark Dashboard
                     </p>
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-3">
                 <div class="px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold text-sm flex items-center gap-2">
                     <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    TPU Node Ready
+                    Node Ready
                 </div>
                 <div class="px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-semibold text-sm">
                     8-Way Parallelism
@@ -124,7 +124,7 @@
 
                         <div class="pt-1 pb-1">
                             <button id="btnPreload" onclick="preloadModels()" class="w-full py-3 rounded-xl bg-slate-800 border border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400 font-semibold active:scale-[0.98] transition flex justify-center items-center gap-2">
-                                <span id="preloadIcon">⚡</span> <span id="preloadText">Pre-load Models to TPU VRAM</span>
+                                <span id="preloadIcon">⚡</span> <span id="preloadText">Pre-load Models to VRAM</span>
                             </button>
                         </div>
                         <div class="pt-2 flex gap-3">
@@ -152,7 +152,7 @@
                             <div class="text-2xl font-bold text-blue-400 mono" id="metricAccuracy">0.0%</div>
                         </div>
                         <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
-                            <span class="block text-xs text-slate-400 font-medium mb-1">TPU Throughput</span>
+                            <span class="block text-xs text-slate-400 font-medium mb-1">Compute Throughput</span>
                             <div class="text-2xl font-bold text-emerald-400 mono" id="metricThroughput">0.0 t/s</div>
                         </div>
                         <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
@@ -174,7 +174,7 @@
                 <div class="glass rounded-3xl p-6 border border-slate-800">
                     <div class="flex items-center justify-between mb-4">
                         <h2 class="text-lg font-bold text-slate-200 flex items-center gap-2">
-                            ⚡ TPU Core Topology Status
+                            ⚡ Accelerator Core Topology Status
                         </h2>
                         <span class="text-sm font-medium text-slate-400 mono" id="progressText">0 / 0</span>
                     </div>
@@ -206,7 +206,7 @@
                                     <th class="py-3.5 px-2 text-center text-emerald-400">Gemini 1.5 Pro</th>
                                     <th class="py-3.5 px-2 text-center text-purple-400 font-extrabold">Fable / SOTA</th>
                                     <th class="py-3.5 px-2 text-center text-slate-500 font-medium">Llama-3-70B</th>
-                                    <th class="py-3.5 px-3 text-center text-blue-400 bg-blue-500/5 rounded-t-2xl border-t border-x border-blue-500/20 font-extrabold">DeepThinker (Local TPU)</th>
+                                    <th class="py-3.5 px-3 text-center text-blue-400 bg-blue-500/5 rounded-t-2xl border-t border-x border-blue-500/20 font-extrabold">DeepThinker (Local)</th>
                                 </tr>
                             </thead>
                             <tbody class="text-xs md:text-sm text-slate-300 font-medium" id="baselineTableBody">
@@ -220,7 +220,7 @@
                 <div class="glass rounded-3xl p-6 border border-slate-800">
                     <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center justify-between">
                         <span>📝 Real-Time Evaluation Logs</span>
-                        <span class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 mono">Host: TPU-v5e-8-node</span>
+                        <span class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 mono">Host: Compute-Node</span>
                     </h2>
                     <div id="consoleLogs" class="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 h-64 overflow-y-auto font-medium mono text-xs leading-relaxed text-slate-300 space-y-2">
                         <div class="text-slate-500">[System] Dashboard initialized. Select a benchmark and click "Start".</div>
@@ -428,7 +428,7 @@
             
             setTimeout(() => {
                 btn.disabled = false;
-                btnText.innerText = "Pre-load Models to TPU VRAM";
+                btnText.innerText = "Pre-load Models to VRAM";
                 btnIcon.innerText = "⚡";
                 btn.classList.replace("bg-emerald-500/20", "bg-slate-800");
             }, 4000);

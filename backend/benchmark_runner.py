@@ -334,11 +334,23 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
     update_state("tokens_per_sec", 0.0)
     update_state("avg_latency", 0.0)
     update_state("elapsed_seconds", 0.0)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            num_workers = max(1, torch.cuda.device_count())
+            hardware_name = f"Dual T4 GPU (x{num_workers} cores)" if num_workers == 2 else f"Nvidia GPU (x{num_workers} cores)"
+        else:
+            num_workers = 8
+            hardware_name = "TPU v5e-8 Host CPU (x8 cores)"
+    except Exception:
+        num_workers = 8
+        hardware_name = "TPU v5e-8 Host CPU (x8 cores)"
+
     with STATE_LOCK:
         BENCHMARK_STATE["logs"] = []
-        BENCHMARK_STATE["workers"] = [{"id": i, "status": "Idle", "task": "N/A", "progress": 0} for i in range(8)]
+        BENCHMARK_STATE["workers"] = [{"id": i, "status": "Idle", "task": "N/A", "progress": 0} for i in range(num_workers)]
         
-    add_log(f"🚀 Starting TPU v5e-8 Benchmark Suite for: {category} (Sample Size: {sample_size})")
+    add_log(f"🚀 Starting {hardware_name} Benchmark Suite for: {category} (Sample Size: {sample_size})")
     
     # Load dataset
     problems = await fetch_real_dataset(category)
@@ -377,9 +389,9 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
             except Exception as e:
                 add_log(f"Worker {worker_id} exception: {str(e)}")
                 
-    # Launch 8 concurrent workers to map to the 8 TPU v5e cores
-    add_log(f"Activating 8-way parallel execution on TPU devices core:0-7...")
-    workers = [asyncio.create_task(worker(i)) for i in range(8)]
+    # Launch concurrent workers mapped to available hardware
+    add_log(f"Activating {num_workers}-way parallel execution on {hardware_name}...")
+    workers = [asyncio.create_task(worker(i)) for i in range(num_workers)]
     
     # Active timer loop
     while any(not w.done() for w in workers) and BENCHMARK_STATE["active"]:
