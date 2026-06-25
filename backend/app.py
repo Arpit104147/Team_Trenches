@@ -222,7 +222,7 @@ async def chat(request: ChatRequest):
     if request.image:
         needed_models += ["qwen_vl"]
         
-    needed_models += ["router", "deepseek_r1", "vibethinker", "opencode"]
+    needed_models += ["router", "deepseek_r1", "opencode"]
         
     missing_models = [MODEL_DEFINITIONS[m]["name"] for m in needed_models if not models_status.get(m, {}).get("downloaded", False)]
     

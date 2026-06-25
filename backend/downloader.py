@@ -29,12 +29,6 @@ MODEL_DEFINITIONS = {
         'name': 'DeepSeek-R1-7B (Reasoning Engine)',
         'type': 'text',
     },
-    'vibethinker': {
-        'repo_id': 'mradermacher/VibeThinker-1.5B-GGUF',
-        'filename': 'VibeThinker-1.5B.Q6_K.gguf',
-        'name': 'VibeThinker 1.5B (Omni AGI Core)',
-        'type': 'text',
-    },
     'opencode': {
         'repo_id': 'MaziyarPanahi/OpenCodeInterpreter-DS-6.7B-GGUF',
         'filename': 'OpenCodeInterpreter-DS-6.7B.Q6_K.gguf',

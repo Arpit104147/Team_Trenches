@@ -314,7 +314,6 @@ class AgentOrchestrator:
         # Model-specific physical context ceilings to prevent VRAM OOM and RoPE overflow
         model_ceilings = {
             "router": 16384,
-            "vibethinker": 8192,
             "opencode": 16384,
             "deepseek_r1": 16384
         }
@@ -390,7 +389,7 @@ class AgentOrchestrator:
         except Exception:
             pass
         # Fallback estimates based on known model sizes
-        size_map = {"router": 3.0, "deepseek_r1": 6.0, "vibethinker": 1.4,
+        size_map = {"router": 3.0, "deepseek_r1": 6.0,
                     "opencode": 5.2, "qwen_vl": 6.5}
         return size_map.get(model_key, 5.0)
 
@@ -634,8 +633,7 @@ class AgentOrchestrator:
                 elif hasattr(torch, "xpu") and torch.xpu.is_available():
                     device = "xpu"
                     
-            if self.dual_gpu_pipeline and model_key == "vibethinker":
-                device = "cuda:1"
+
                 
             tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
             
@@ -705,9 +703,8 @@ class AgentOrchestrator:
         for pat in patterns:
             cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
         return cleaned.strip()
-
     def _strip_thinking(self, text):
-        """Remove <think>...</think> blocks from DeepSeek R1 / VibeThinker output."""
+        """Remove <think>...</think> blocks from DeepSeek R1 output."""
         if not text:
             return text
             
@@ -1087,7 +1084,7 @@ class AgentOrchestrator:
         coder_model = model
         # Redirect all playground script writing to the Router to prevent DeepSeek-R1 thinking tokens
         # from depleting the context window and causing code truncation, or VibeThinker syntax errors.
-        if purpose == "reasoning" or model_key in ["vibethinker", "deepseek_r1"]:
+        if purpose == "reasoning" or model_key in ["deepseek_r1"]:
             coder_model = self._get_model("router", required_ctx=8192)
 
         # Classify the domain of the query
@@ -2433,15 +2430,15 @@ class AgentOrchestrator:
 
                 compiled_plan = ds_draft
 
-                # ── Phase 3: VibeThinker — Write Code ────────────────────────
+                # ── Phase 3: OpenCode — Write Code ───────────────────────────
                 if status_callback:
-                    status_callback(f"VibeThinker writing code (Attempt {rnd+1}/{max_rounds})...", "info", "vibethinker", 50 + rnd*10)
-                vibe_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
+                    status_callback(f"OpenCode writing code (Attempt {rnd+1}/{max_rounds})...", "info", "opencode", 50 + rnd*10)
+                oc_llm = self._get_model("opencode", required_ctx=oc_ctx)
                 # Truncate compiled_plan to fit context
-                max_code_prompt_chars = (ds_ctx - gen_tokens - 200) * 3
+                max_code_prompt_chars = (oc_ctx - gen_tokens - 200) * 3
                 plan_for_code = compiled_plan[:max(max_code_prompt_chars, 1500)] if len(compiled_plan) > max_code_prompt_chars else compiled_plan
                 code_p = f"Write a complete Python script for this plan:\n{plan_for_code}\n\nWrap in ```python```."
-                code = Sandbox.extract_code(self._strip_thinking(self._call_model(vibe_llm, code_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
+                code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_llm, code_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
 
                 # ── Phase 4: Execution Sandbox ───────────────────────────────
                 if status_callback:
@@ -2451,7 +2448,7 @@ class AgentOrchestrator:
                     self.memory.save(prompt, code)
                     if rnd > 0 or reset > 0:
                         self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
-                    router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                    router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                     return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback)
 
                 # Save initial failures to register mistake later
@@ -2459,19 +2456,19 @@ class AgentOrchestrator:
                     initial_failed_code = code
                     initial_failed_error = output
 
-                # ── Phase 4.5: VibeThinker Linter Intercept (Syntax/Import Errors) ──
+                # ── Phase 4.5: OpenCode Linter Intercept (Syntax/Import Errors) ──
                 is_syntax_error = any(e in output for e in ["SyntaxError", "ModuleNotFoundError", "NameError", "IndentationError", "TypeError", "AttributeError", "ValueError"])
                 if is_syntax_error:
                     if status_callback:
-                        status_callback("VibeThinker patching syntax error...", "warning", "vibethinker", 65 + rnd*10)
-                    vibe_linter = self._get_model("vibethinker", required_ctx=ds_ctx)
+                        status_callback("OpenCode patching syntax error...", "warning", "opencode", 65 + rnd*10)
+                    oc_linter = self._get_model("opencode", required_ctx=oc_ctx)
                     lint_p = (
                         f"You are a fast Python Syntax Linter.\n"
                         f"The code failed with this error:\n{output[:600]}\n\n"
                         f"CODE:\n{code[:2500]}\n\n"
                         f"Identify the typo/error and rewrite the complete corrected script in a ```python``` block. Fix ONLY the exact error, do not change the core algorithm."
                     )
-                    lint_code = Sandbox.extract_code(self._strip_thinking(self._call_model(vibe_linter, lint_p, gen_tokens, 0.1, system_prompt="You are a strict syntax linter. Output only code.")))
+                    lint_code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_linter, lint_p, gen_tokens, 0.1, system_prompt="You are a strict syntax linter. Output only code.")))
                     if lint_code and len(lint_code) > 20:
                         linter_ok, linter_output = self.sandbox.execute(lint_code)
                         if linter_ok:
@@ -2479,11 +2476,11 @@ class AgentOrchestrator:
                             output = linter_output
                             ok = True
                             if status_callback:
-                                status_callback("VibeThinker successfully patched the code!", "success", "vibethinker", 70 + rnd*10)
+                                status_callback("OpenCode successfully patched the code!", "success", "opencode", 70 + rnd*10)
                             self.memory.save(prompt, code)
                             if rnd > 0 or reset > 0:
                                 self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
-                            router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                            router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                             return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback)
                 
                 # ── Phase 5 & 6: Reflexion / Self-Correction ─────────────────
@@ -2499,9 +2496,9 @@ class AgentOrchestrator:
                         pass
                     search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
 
-                    # VibeThinker corrects the code first (already loaded from Phase 3 — no swap needed)
+                    # OpenCode corrects the code first (already loaded from Phase 3 — no swap needed)
                     if status_callback:
-                        status_callback(f"VibeThinker correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "vibethinker", 73 + rnd*10)
+                        status_callback(f"OpenCode correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "opencode", 73 + rnd*10)
                     failed_code = code
                     failed_error = output
                     safe_code = code[:2000] if len(code) > 2000 else code
@@ -2524,7 +2521,7 @@ class AgentOrchestrator:
                         fix_p += (
                             f"5. TIMEOUT FIX: The code took too long. Reduce computation — use smaller arrays, "
                             f"fewer iterations, vectorized numpy operations instead of Python loops, or reduce simulation time span.\n"
-                        )
+                         )
                     elif 'MemoryError' in safe_error or 'RLIMIT' in safe_error or 'Cannot allocate' in safe_error:
                         fix_p += (
                             f"5. MEMORY FIX: The code used too much memory. Use generators instead of lists, "
@@ -2537,19 +2534,19 @@ class AgentOrchestrator:
                         )
                     fix_p += f"6. Output the COMPLETE corrected script in ```python``` blocks."
 
-                    # Try VibeThinker first (already loaded, no model swap needed)
-                    vibe_fix = self._get_model("vibethinker", required_ctx=ds_ctx)
-                    code = Sandbox.extract_code(self._strip_thinking(self._call_model(vibe_fix, fix_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
+                    # Try OpenCode first (already loaded, no model swap needed)
+                    oc_fix = self._get_model("opencode", required_ctx=oc_ctx)
+                    code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_fix, fix_p, gen_tokens, gen_temp, system_prompt=coder_sys)))
                     ok, output = self.sandbox.execute(code)
                     if ok:
                         if status_callback:
-                            status_callback("VibeThinker's correction VERIFIED!", "success", "vibethinker", 78 + rnd*10)
+                            status_callback("OpenCode's correction VERIFIED!", "success", "opencode", 78 + rnd*10)
                         self.memory.save(prompt, code)
                         self.memory.save_mistake(prompt, failed_code, failed_error, code)
-                        router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback)
 
-                    # Escalate to DeepSeek-R1 only if VibeThinker's correction also failed
+                    # Escalate to DeepSeek-R1 only if OpenCode's correction also failed
                     if status_callback:
                         status_callback(f"DeepSeek-R1 correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "deepseek_r1", 80 + rnd*10)
                     ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
@@ -2560,7 +2557,7 @@ class AgentOrchestrator:
                             status_callback("DeepSeek-R1's correction VERIFIED!", "success", "deepseek_r1", 85 + rnd*10)
                         self.memory.save(prompt, code)
                         self.memory.save_mistake(prompt, failed_code, failed_error, code)
-                        router_llm = None; ds_llm = None; vibe_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback)
 
                     # Don't let ds_safe grow unboundedly — cap the appended errors
@@ -2713,7 +2710,7 @@ class AgentOrchestrator:
                 vibe_pg_out = ""
                 helper_search_context = ""
                 for rnd in range(max_rounds):
-                    # Re-acquire ds_llm because VibeThinker may have evicted it in the previous round
+                    # Re-acquire ds_llm because other models may have evicted it in the previous round
                     ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
                     if status_callback:
                         lbl = f"Nuclear Reset #{reset} (Attempt {rnd+1}/{max_rounds}): DeepSeek-R1 re-reasoning..." if reset else f"DeepSeek-R1 reasoning + playground (Attempt {rnd+1}/{max_rounds})..."
