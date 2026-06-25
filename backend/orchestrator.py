@@ -274,6 +274,15 @@ class AgentOrchestrator:
                     if surplus_vram > 0:
                         vram_allowed_ceiling = int(base_limit + surplus_vram * 8000)
                         vram_allowed_ceiling = min(32768, vram_allowed_ceiling)
+                
+                # GPU Architecture check: older GPUs (P100, T4, V100) lack hardware Flash Attention.
+                # Standard attention memory scales quadratically. Cap context to prevent OOM.
+                try:
+                    major, minor = torch.cuda.get_device_capability(0)
+                    if major < 8:  # SM 6.0 (P100), SM 7.5 (T4)
+                        vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
