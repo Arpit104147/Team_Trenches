@@ -1099,7 +1099,7 @@ class AgentOrchestrator:
         rules = [
             "Test the CORE claim/formula with concrete numerical values",
             "You MUST strictly adhere to ALL constraints in the original query (e.g. air drag, specific angles, 3D vs 2D). DO NOT SIMPLIFY the physics.",
-            "You MUST use math.isclose(a, b, rel_tol=1e-3) or np.isclose(a, b) for ANY floating point comparisons. NEVER use == for floats.",
+            "You MUST use math.isclose(a, b, rel_tol=2e-2) or np.isclose(a, b, rtol=2e-2) for ANY floating point comparisons of numerical physics simulation results (since numerical integration accumulated errors over many cycles can deviate slightly). NEVER use == for floats.",
             "When using math.isclose, np.isclose, or np.allclose, ensure any assertion message string is OUTSIDE the function call: `assert np.isclose(a, b), 'message'` (never `assert np.isclose(a, b, 'message')`).",
             "If testing values on a grid or meshgrid (e.g., S_grid, I_grid), make sure you check boundary conditions at specific coordinate indices where the variable has the expected value (e.g. to test uninhibited velocity at [I] = 0, query the row/column index where the inhibitor grid equals 0, rather than a middle index like [50, 50] where [I] > 0).",
             "Check at least 2 different test cases or boundary conditions",
