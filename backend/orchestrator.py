@@ -1704,7 +1704,7 @@ class AgentOrchestrator:
             "You are a Python data visualization expert. "
             "Write ONLY a complete Python script using plotly for an interactive 3D visualization.\n"
             "RULES:\n"
-            "1. Import plotly.graph_objects as go and numpy as np ONLY\n"
+            "1. Import plotly.graph_objects as go, numpy as np, and optionally scipy or scipy.integrate if needed to solve differential equations or fit curves.\n"
             "2. Create a 3D scatter, surface, or line plot\n"
             "3. Use fig.update_layout(template='plotly_dark', margin=dict(l=0,r=0,t=40,b=0))\n"
             "4. Do NOT use fig.update_scenes(). Do NOT use go.FigureControls(). They do NOT exist.\n"
@@ -1713,9 +1713,10 @@ class AgentOrchestrator:
             "7. Do NOT import plotly.subplots, plotly.io, or any other plotly module\n"
             "8. Last line MUST be: print(fig.to_json())\n"
             "9. Do NOT call fig.show() or save to file\n"
-            "10. GRID RESOLUTION LIMIT: For 3D surface/contour plots, use a grid size of at most 25x25 or 30x30 points (e.g. np.linspace(..., 25) or np.linspace(..., 30)) to keep the output JSON compact, prevent streaming/rendering lag, and fit within context bounds.\n\n"
+            "10. GRID RESOLUTION LIMIT: For 3D surface/contour plots, use a grid size of at most 25x25 or 30x30 points (e.g. np.linspace(..., 25) or np.linspace(..., 30)) to keep the output JSON compact, prevent streaming/rendering lag, and fit within context bounds.\n"
+            "11. NO DEBUGGING COMMENTARY: The Topic section below contains context and code fragments. Do NOT try to fix, patch, or debug the code snippets in the Topic, and do NOT write comments about them. Write a complete, self-contained Python script from scratch that defines all required constants (like q, m, E, B), solves the system, creates the figure, and prints the JSON.\n\n"
             "Output ONLY code in ```python``` blocks.\n\n"
-            f"Topic: {compiled_plan[:3000]}"
+            f"Topic Context:\n{compiled_plan[:3000]}"
         )
         viz_code = self._call_model(
             coder_llm, 
