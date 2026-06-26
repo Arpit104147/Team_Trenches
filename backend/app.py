@@ -188,7 +188,8 @@ async def offload_memory():
 
 @app.post("/api/load_all")
 def load_all_models():
-    """Pre-load core text models into VRAM for benchmark readiness.
+    """Pre-load ALL core text models directly into VRAM simultaneously.
+    Temporarily suspends EVM hot-swap to prevent each model load from flushing the previous one.
     Skips vision/multimodal models to prevent OOM on constrained hardware (Dual T4 / P100)."""
     import gc
     try:
@@ -198,17 +199,30 @@ def load_all_models():
         # Only load text models needed for benchmarking — skip large vision models
         benchmark_models = ["router", "deepseek_r1", "opencode"]
         loaded = []
-        for model_key in benchmark_models:
-            if model_key in downloaded:
-                try:
-                    orchestrator._get_model(model_key)
-                    loaded.append(model_key)
-                    gc.collect()
-                except Exception as e:
-                    print(f"⚠️ Failed to pre-load '{model_key}': {e}")
-                    # Don't crash — continue loading the rest
+        
+        # Temporarily suspend EVM so loading model 2 doesn't flush model 1
+        evm_was_active = getattr(orchestrator, 'kaggle_hotswap_mode', False)
+        if evm_was_active:
+            orchestrator.kaggle_hotswap_mode = False
+            print("⏸️  EVM: Suspended for bulk VRAM loading...")
+        
+        try:
+            for model_key in benchmark_models:
+                if model_key in downloaded:
+                    try:
+                        orchestrator._get_model(model_key)
+                        loaded.append(model_key)
+                        gc.collect()
+                    except Exception as e:
+                        print(f"⚠️ Failed to pre-load '{model_key}': {e}")
+                        # Don't crash — continue loading the rest
+        finally:
+            # Always restore EVM mode, even if loading crashes
+            if evm_was_active:
+                orchestrator.kaggle_hotswap_mode = True
+                print(f"▶️  EVM: Restored — {len(loaded)} models now resident in VRAM")
             
-        return {"status": "success", "message": f"Loaded {len(loaded)} models: {', '.join(loaded)}"}
+        return {"status": "success", "message": f"Loaded {len(loaded)} models directly into VRAM: {', '.join(loaded)}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
