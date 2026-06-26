@@ -83,8 +83,8 @@
                     <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     Node Ready
                 </div>
-                <div class="px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-semibold text-sm">
-                    8-Way Parallelism
+                <div id="parallelismBadge" class="px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-semibold text-sm">
+                    Auto Parallelism
                 </div>
             </div>
         </header>
@@ -320,6 +320,10 @@
                 document.getElementById("metricThroughput").innerText = `${state.tokens_per_sec} t/s`;
                 document.getElementById("metricLatency").innerText = `${state.avg_latency}s`;
                 document.getElementById("metricTime").innerText = `${state.elapsed_seconds}s`;
+                
+                if (state.workers && state.workers.length > 0) {
+                    document.getElementById("parallelismBadge").innerText = `${state.workers.length}-Way Parallelism`;
+                }
                 
                 // Progress
                 const progressText = `${state.progress} / ${state.total}`;
