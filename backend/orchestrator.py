@@ -530,7 +530,7 @@ class AgentOrchestrator:
             except Exception:
                 pass
 
-    def _get_model(self, model_key, required_ctx=None):
+    def _get_model(self, model_key, required_ctx=None, force_cpu=False):
         """Load a model with Dynamic Memory Allocator protection and dynamic context sizing."""
         if required_ctx is None:
             required_ctx = self.context_length if self.context_length > 0 else 8192
@@ -540,29 +540,55 @@ class AgentOrchestrator:
         # To completely prevent this, we enforce that on GPUs, the model is ALWAYS loaded with
         # its maximum safe context ceiling (ceiling) right from the start. This ensures the model
         # is loaded exactly once at its full capacity and NEVER has to be unloaded/reloaded to expand.
-        if torch and torch.cuda.is_available():
+        if torch and torch.cuda.is_available() and not force_cpu:
             ceiling = self._get_dynamic_context_ceiling(model_key)
             required_ctx = ceiling
 
-        # Fast path: read-cache check without locking to maximize throughput
+        # Check if already loaded
         if model_key in self.loaded_models:
             model_obj = self.loaded_models[model_key]
-            if not (hasattr(model_obj, "n_ctx") and required_ctx > model_obj.n_ctx()):
-                self._touch_model(model_key)
-                return model_obj
+            current_gpu_layers = getattr(model_obj, "_n_gpu_layers", 0)
+            
+            # Case 1: We want it on GPU (not force_cpu and device_mode != cpu) but it's currently on CPU (RAM)
+            if (self.device_mode != "cpu" and not force_cpu) and current_gpu_layers == 0:
+                print(f"🔄 EVM (RAM -> VRAM Swap): Swapping '{model_key}' from System RAM to GPU VRAM for active inference...")
+                with self.model_lock:
+                    # Unload CPU version
+                    self.loaded_models.pop(model_key, None)
+                    if hasattr(model_obj, "close"):
+                        try: model_obj.close()
+                        except: pass
+                    del model_obj
+                    gc.collect()
+            # Case 2: We want it on CPU (force_cpu) but it's currently on GPU (VRAM)
+            elif force_cpu and current_gpu_layers > 0:
+                print(f"🔄 EVM (VRAM -> RAM Swap): Swapping '{model_key}' from VRAM down to System RAM...")
+                with self.model_lock:
+                    # Unload GPU version
+                    self.loaded_models.pop(model_key, None)
+                    if hasattr(model_obj, "close"):
+                        try: model_obj.close()
+                        except: pass
+                    del model_obj
+                    gc.collect()
+            else:
+                # Fast path: already loaded with correct target and sufficient context
+                if not (hasattr(model_obj, "n_ctx") and required_ctx > model_obj.n_ctx()):
+                    self._touch_model(model_key)
+                    return model_obj
 
-        # Synchronize load operations across all TPU worker threads
+        # Synchronize load operations across all threads
         with self.model_lock:
-            return self._load_model_synchronized(model_key, required_ctx)
+            return self._load_model_synchronized(model_key, required_ctx, force_cpu)
 
-    def _load_model_synchronized(self, model_key, required_ctx=None):
+    def _load_model_synchronized(self, model_key, required_ctx=None, force_cpu=False):
         """Internal synchronized loader protecting against concurrent load race conditions."""
         if required_ctx is None:
             required_ctx = self.context_length if self.context_length > 0 else 8192
 
         if model_key in self.loaded_models:
             model_obj = self.loaded_models[model_key]
-            # Context expansion — safe reload on all platforms (including Intel iGPU/Vulkan)
+            # Context expansion — safe reload on all platforms
             if hasattr(model_obj, "n_ctx") and required_ctx > model_obj.n_ctx():
                 print(f"🔄 Reloading '{model_key}' to expand context: {model_obj.n_ctx()} -> {required_ctx}")
                 with self.inference_lock:
@@ -576,20 +602,11 @@ class AgentOrchestrator:
                         self.model_access_order.remove(model_key)
                     del model_obj
                 gc.collect()
-                # ⚠️ llama-cpp-python manages its own CUDA context, independent of PyTorch.
-                # On Kaggle P100 (sm_60), PyTorch's CUDA runtime is INCOMPATIBLE and
-                # torch.cuda.synchronize() can segfault the process.
-                # We rely on time.sleep() to let llama.cpp's internal cudaFree() complete.
                 try:
                     if torch and torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
-                    pass  # Safe to ignore — llama.cpp doesn't use PyTorch's CUDA allocator
-                if torch and hasattr(torch, "xpu") and torch.xpu.is_available():
-                    try:
-                        torch.xpu.empty_cache()
-                    except Exception:
-                        pass
+                    pass
                 time.sleep(2)  # Give llama.cpp's async CUDA deallocation time to complete
             else:
                 self._touch_model(model_key)
@@ -601,18 +618,18 @@ class AgentOrchestrator:
         print(f"📦 DMA: Preparing to load '{model_key}' (~{est_model_gb:.1f} GB)")
         
         # ── EVM Hot-Swap Guard ────────────────────────────────────────────
-        # On Kaggle P100 (16GB VRAM, 32GB RAM), aggressively flush ALL other models
-        # from VRAM so the incoming model gets 100% of the VRAM KV Cache space.
-        # After EVM flush, skip _check_memory_pressure entirely — EVM guarantees
-        # all VRAM is free, and the pressure check's torch.cuda calls can crash
-        # on P100 (sm_60) where PyTorch's CUDA runtime is incompatible.
+        # On constrained GPUs, aggressively swap ALL other active GPU models
+        # down to System RAM (CPU) so the incoming model gets 100% of the VRAM KV Cache space.
         evm_flushed = False
-        if getattr(self, 'kaggle_hotswap_mode', False) and self.loaded_models:
-            models_to_flush = [mk for mk in list(self.loaded_models.keys()) if mk != model_key]
-            if models_to_flush:
+        if getattr(self, 'kaggle_hotswap_mode', False) and not force_cpu and self.loaded_models:
+            models_to_swap_down = [
+                mk for mk, m in list(self.loaded_models.items())
+                if mk != model_key and getattr(m, "_n_gpu_layers", 0) > 0
+            ]
+            if models_to_swap_down:
                 with self.inference_lock:
-                    for mk in models_to_flush:
-                        print(f"🔄 DMA (EVM Hot-Swap): Unloading '{mk}' from VRAM...")
+                    for mk in models_to_swap_down:
+                        print(f"🔄 DMA (EVM Hot-Swap): Swapping '{mk}' down from VRAM to System RAM...")
                         model_obj = self.loaded_models.pop(mk, None)
                         if mk in self.model_access_order:
                             self.model_access_order.remove(mk)
@@ -622,28 +639,35 @@ class AgentOrchestrator:
                             except Exception:
                                 pass
                         del model_obj
+                        gc.collect()
+                        
+                        # Re-load the swapped-down model on CPU to keep it warm in System RAM
+                        try:
+                            cpu_path = get_model_path(mk)
+                            cpu_ctx = 2048
+                            if mk == "router": cpu_ctx = 4096
+                            elif mk == "opencode": cpu_ctx = 8192
+                            elif mk == "deepseek_r1": cpu_ctx = 8192
+                            
+                            # Recursively load to CPU
+                            print(f"📥 DMA (EVM Hot-Swap): Re-instantiating '{mk}' on CPU (System RAM)...")
+                            self._load_model_synchronized(mk, required_ctx=cpu_ctx, force_cpu=True)
+                        except Exception as cpu_ex:
+                            print(f"⚠️ DMA (EVM): Failed to swap '{mk}' down to CPU: {cpu_ex}")
+                            
                 gc.collect()
-                # Use time.sleep instead of torch.cuda.synchronize which crashes on P100
                 try:
                     if torch and torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
-                    pass  # Safe — llama.cpp manages its own CUDA memory
-                time.sleep(2)  # Let llama.cpp's internal cudaFree() complete
-                # Verify eviction actually freed VRAM
-                try:
-                    free_vram, total_vram = torch.cuda.mem_get_info(0)
-                    free_vram_gb = free_vram / (1024 ** 3)
-                    print(f"✅ DMA (EVM): VRAM after eviction: {free_vram_gb:.1f} GB free / {total_vram/(1024**3):.0f} GB total")
-                except Exception:
                     pass
+                time.sleep(2)
                 evm_flushed = True
             else:
                 evm_flushed = True  # Only our model is loaded, all VRAM is ours
                 
-        # Skip memory pressure check if EVM already cleared VRAM — the pressure
-        # check runs torch.cuda.synchronize() internally which can crash on P100 (sm_60)
-        if not evm_flushed:
+        # Skip memory pressure check if EVM already cleared VRAM
+        if not evm_flushed and not force_cpu:
             target_gpu = 0
             if self.dual_gpu_pipeline:
                 if model_key in ["deepseek_r1", "qwen_vl"]:
@@ -653,15 +677,8 @@ class AgentOrchestrator:
             self._check_memory_pressure(required_vram_gb=est_model_gb, target_gpu_idx=target_gpu)
 
         # ── iGPU Unified Memory Guard ─────────────────────────────────────
-        # On Intel Iris Xe (and similar iGPUs), RAM IS VRAM. Loading two 7B
-        # models simultaneously causes glibc heap corruption ('corrupted size
-        # vs. prev_size') because llama.cpp does one giant contiguous malloc.
-        # Fix: if we are on an iGPU (no discrete CUDA GPU), proactively evict
-        # the least-recently-used model before loading a new heavy one.
         is_igpu = not (torch and torch.cuda.is_available())
         if is_igpu and self.loaded_models:
-            # Estimate: 7B Q6_K models need ~6 GB, 1.5B need ~1.4 GB
-            # If we already have a 7B loaded, evict it first
             free_ram = self._get_ram_free_gb()
             if free_ram < self.total_ram_gb * 0.35:  # Less than 35% RAM free
                 print(f"🧠 DMA (iGPU Guard): Pre-emptive eviction — only {free_ram:.1f} GB free")
@@ -679,18 +696,15 @@ class AgentOrchestrator:
             kwargs = {
                 "model_path": model_path,
                 "n_ctx": required_ctx,
-                "n_gpu_layers": self.gpu_layers if self.device_mode != "cpu" else 0,
+                "n_gpu_layers": 0 if (self.device_mode == "cpu" or force_cpu) else self.gpu_layers,
                 "verbose": False
             }
-            # Kaggle Input Speedup: /kaggle/input is a slow network-attached mount.
-            # Disabling mmap forces the model weights to be loaded entirely into fast system RAM
-            # at startup, avoiding slow on-demand network reads during generation.
+            # Kaggle Input Speedup
             if "/kaggle/input" in model_path or "kaggle" in model_path.lower():
                 kwargs["use_mmap"] = False
-            # Restrict batch sizes and disable flash attention on older GPUs (like P100/T4)
-            # to prevent self-attention scratch buffer VRAM spikes and CUDA crashes.
+            # Restrict batch sizes and disable flash attention on older GPUs
             is_older_gpu = False
-            if torch and torch.cuda.is_available():
+            if torch and torch.cuda.is_available() and not force_cpu:
                 try:
                     major, _ = torch.cuda.get_device_capability(0)
                     if major < 8:
@@ -703,15 +717,14 @@ class AgentOrchestrator:
                 kwargs["n_ubatch"] = 256
                 kwargs["flash_attn"] = False
             else:
-                print("⚡ DMA: Modern Enterprise GPU detected! Enabling Hardware Flash Attention.")
                 kwargs["flash_attn"] = True
 
-            # Dual-GPU: balance VRAM by distributing the heavy models across both cards
-            if self.dual_gpu_pipeline:
+            # Dual-GPU
+            if self.dual_gpu_pipeline and not force_cpu:
                 if model_key in ["deepseek_r1", "qwen_vl"]:
-                    kwargs["main_gpu"] = 1  # GPU 1 holds DeepSeek-R1 (5.8 GB) and Qwen-VL (7.8 GB)
+                    kwargs["main_gpu"] = 1
                 else:
-                    kwargs["main_gpu"] = 0  # GPU 0 holds OpenCode (5.2 GB) and Router (2.9 GB)
+                    kwargs["main_gpu"] = 0
 
             try:
                 llm = Llama(**kwargs)
@@ -721,10 +734,12 @@ class AgentOrchestrator:
                 kwargs.pop("main_gpu", None)
                 llm = Llama(**kwargs)
 
+            # Store actual n_gpu_layers config on the instance
+            llm._n_gpu_layers = kwargs["n_gpu_layers"]
             self.loaded_models[model_key] = llm
             self._touch_model(model_key)
             print(f"✅ Loaded GGUF model '{model_key}' ({os.path.basename(model_path)})" + 
-                  (" (CPU Fallback)" if kwargs.get("n_gpu_layers") == 0 and self.device_mode != "cpu" else ""))
+                  (f" (System RAM/CPU)" if kwargs.get("n_gpu_layers") == 0 else " (GPU VRAM)"))
             return llm
             
         # ── Safetensors / Transformers Models ────────────────────────────
