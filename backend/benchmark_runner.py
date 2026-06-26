@@ -119,12 +119,12 @@ async def fetch_real_dataset(category: str) -> List[Dict[str, Any]]:
         if category == "HumanEval":
             dataset = load_dataset("openai_humaneval", split="test")
             add_log(f"Successfully loaded OpenAI HumanEval dataset ({len(dataset)} items).")
-            return [{"id": item["task_id"], "prompt": item["prompt"], "test": item["test"]} for item in dataset]
+            return [{"id": item["task_id"], "prompt": item["prompt"], "test": item["test"], "entry_point": item["entry_point"]} for item in dataset]
             
         elif category == "MBPP":
             dataset = load_dataset("mbpp", "sanitized", split="test")
             add_log(f"Successfully loaded MBPP Sanitized dataset ({len(dataset)} items).")
-            return [{"id": f"MBPP/{item['task_id']}", "prompt": item["prompt"], "test": item["test_list"]} for item in dataset]
+            return [{"id": f"MBPP/{item['task_id']}", "prompt": item["prompt"], "test": "\n".join(item["test_list"])} for item in dataset]
             
         elif category == "GSM8K":
             dataset = load_dataset("gsm8k", "main", split="test")
@@ -253,6 +253,10 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                         # Append the hidden test cases from the dataset directly to the code
                         test_code = extracted_code + "\n\n" + problem["test"]
                         
+                        # HumanEval requirement: The dataset defines a check(candidate) function, but we must actively call it!
+                        if "entry_point" in problem and problem["entry_point"]:
+                            test_code += f"\n\ncheck({problem['entry_point']})"
+                            
                         # Use the secure sandbox to run the final graded code
                         is_success, output = await asyncio.to_thread(orchestrator.sandbox.execute, test_code, "python")
                         success = is_success
