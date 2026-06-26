@@ -246,10 +246,10 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                 # Accurately determine success by running the exact hidden unit tests like OpenAI/Anthropic
                 if "test" in problem and problem["test"] and category in ["HumanEval", "MBPP"]:
                     import re
-                    # Extract the raw python code from the markdown response
-                    match = re.search(r"```(?:python)?\s*(.*?)\s*```", response, re.DOTALL | re.IGNORECASE)
-                    if match:
-                        extracted_code = match.group(1)
+                    # Extract all Python code blocks and take the LAST one (which is the final verified output)
+                    matches = re.findall(r"```python\s*(.*?)\s*```", response, re.DOTALL | re.IGNORECASE)
+                    if matches:
+                        extracted_code = matches[-1]
                         # Append the hidden test cases from the dataset directly to the code
                         test_code = extracted_code + "\n\n" + problem["test"]
                         
