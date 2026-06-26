@@ -528,11 +528,12 @@ class AgentOrchestrator:
 
         # CRITICAL SEGFAULT PREVENTION: llama.cpp has a known C-level double-free segfault
         # when a GGUF model is closed and re-initialized in the same process to expand context.
-        # To completely prevent this, we enforce a context floor of 8192 (or the model's ceiling)
-        # for all GPU loads so the model is loaded with a large context once and NEVER has to reload.
+        # To completely prevent this, we enforce that on GPUs, the model is ALWAYS loaded with
+        # its maximum safe context ceiling (ceiling) right from the start. This ensures the model
+        # is loaded exactly once at its full capacity and NEVER has to be unloaded/reloaded to expand.
         if torch and torch.cuda.is_available():
             ceiling = self._get_dynamic_context_ceiling(model_key)
-            required_ctx = max(required_ctx, min(8192, ceiling))
+            required_ctx = ceiling
 
         # Fast path: read-cache check without locking to maximize throughput
         if model_key in self.loaded_models:
