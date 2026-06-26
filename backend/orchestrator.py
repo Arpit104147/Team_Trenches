@@ -2729,7 +2729,18 @@ class AgentOrchestrator:
                 # ── Phase 4: Execution Sandbox ───────────────────────────────
                 if status_callback:
                     status_callback(f"Executing in Sandbox (Attempt {rnd+1}/{max_rounds})...", "info", "sandbox", 60 + rnd*10)
-                ok, output = self.sandbox.execute(code, language=req_lang)
+                
+                # Active Doctest-Driven Self-Correction:
+                exec_code = code
+                if req_lang == "python" and ">>>" in prompt:
+                    exec_code += (
+                        "\n\nif __name__ == '__main__':\n"
+                        "    import doctest\n"
+                        "    res = doctest.testmod(verbose=False)\n"
+                        "    if res.failed > 0:\n"
+                        "        raise AssertionError(f'Doctest failed: {res.failed} examples failed out of {res.attempted}')\n"
+                    )
+                ok, output = self.sandbox.execute(exec_code, language=req_lang)
                 if ok:
                     self.memory.save(prompt, code)
                     if rnd > 0 or reset > 0:
@@ -2757,7 +2768,17 @@ class AgentOrchestrator:
                     lint_sys = f"You are a strict {lang_name} syntax linter. Output only code."
                     lint_code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_linter, lint_p, gen_tokens, 0.1, system_prompt=lint_sys)))
                     if lint_code and len(lint_code) > 20:
-                        linter_ok, linter_output = self.sandbox.execute(lint_code, language=req_lang)
+                        # Active Doctest-Driven Self-Correction for Linter:
+                        exec_lint_code = lint_code
+                        if req_lang == "python" and ">>>" in prompt:
+                            exec_lint_code += (
+                                "\n\nif __name__ == '__main__':\n"
+                                "    import doctest\n"
+                                "    res = doctest.testmod(verbose=False)\n"
+                                "    if res.failed > 0:\n"
+                                "        raise AssertionError(f'Doctest failed: {res.failed} examples failed out of {res.attempted}')\n"
+                            )
+                        linter_ok, linter_output = self.sandbox.execute(exec_lint_code, language=req_lang)
                         if linter_ok:
                             code = lint_code
                             output = linter_output
