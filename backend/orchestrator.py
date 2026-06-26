@@ -2253,7 +2253,10 @@ class AgentOrchestrator:
         gen_tokens = max(2048, min(8192, gen_tokens))
         # Ensure the prompt always has at least 1500 tokens of headroom
         if min_ctx - gen_tokens < 1500:
-            gen_tokens = max(1024, min_ctx - 1500)
+            gen_tokens = max(512, min_ctx - 1500)
+        # Absolute safety floor: gen_tokens must never be zero or negative
+        if gen_tokens < 256:
+            gen_tokens = 256
             
         print(f"📐 DMA Generation Sizing: gen_tokens={gen_tokens} (active context base: {min_ctx} tokens)")
         
@@ -2271,6 +2274,22 @@ class AgentOrchestrator:
         if active_web_search and (not isinstance(mode, str) or mode.lower() == "auto"):
             if is_predictive:
                 task_type = "CODING"
+                # Prediction tasks with web search produce massive enriched prompts.
+                # Ensure ds_ctx and oc_ctx are large enough to hold the scraped web data.
+                # On Dual T4 (16GB each), we can safely push to 16k context for predictions.
+                prediction_min_ctx = min(16384, ds_ctx_cap)
+                if ds_ctx < prediction_min_ctx:
+                    ds_ctx = prediction_min_ctx
+                if oc_ctx < prediction_min_ctx:
+                    oc_ctx = prediction_min_ctx
+                # Recalculate gen_tokens with the expanded context
+                min_ctx = min(ds_ctx, oc_ctx)
+                gen_tokens = int(min_ctx * 0.40)
+                gen_tokens = max(2048, min(8192, gen_tokens))
+                if min_ctx - gen_tokens < 1500:
+                    gen_tokens = max(512, min_ctx - 1500)
+                if gen_tokens < 256:
+                    gen_tokens = 256
             else:
                 task_type = "SIMPLE"
                 
@@ -2452,7 +2471,9 @@ class AgentOrchestrator:
 
         logic_temp = 0.6
         # Leave 1000 tokens headroom specifically for the massive 'planner_sys' system prompt
-        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - gen_tokens - 1000, status_callback, router_llm=router_llm)
+        # Safety floor: ensure crunch budget is at least 1024 tokens so the planner has enough context
+        crunch_budget = max(1024, ds_ctx - gen_tokens - 1000)
+        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", crunch_budget, status_callback, router_llm=router_llm)
 
         max_resets = 2
         lessons = ""
@@ -2898,7 +2919,9 @@ class AgentOrchestrator:
 
 
         # Leave 1000 tokens headroom specifically for the massive 'planner_sys' system prompt
-        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", ds_ctx - gen_tokens - 1000, status_callback, router_llm=router_llm)
+        # Safety floor: ensure crunch budget is at least 1024 tokens
+        crunch_budget = max(1024, ds_ctx - gen_tokens - 1000)
+        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", crunch_budget, status_callback, router_llm=router_llm)
 
         if status_callback:
             mode = "Playground-Verified" if use_playground else "LLM Debate"
