@@ -240,7 +240,7 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                 response = await asyncio.to_thread(
                     orchestrator.process_query,
                     prompt,
-                    "auto",
+                    mode,
                     None,
                     status_cb
                 )

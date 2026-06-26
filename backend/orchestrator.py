@@ -1155,11 +1155,13 @@ class AgentOrchestrator:
         try:
             result = self._call_model(router_llm, few_shot_prompt, max_tokens=10, temperature=0.1)
             upper = str(result).strip().upper()
-            if "CODING" in upper:
+            # Use word boundaries to prevent substring matching bugs (e.g. "simple math" matching SIMPLE)
+            words = re.findall(r'\b\w+\b', upper)
+            if "CODING" in words:
                 return "CODING"
-            if "REASONING" in upper:
+            if "REASONING" in words:
                 return "REASONING"
-            if "SIMPLE" in upper:
+            if "SIMPLE" in words:
                 return "SIMPLE"
         except Exception as e:
             print(f"LLM task classification failed, falling back to heuristics: {e}")
