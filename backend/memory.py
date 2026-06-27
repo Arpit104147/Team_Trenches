@@ -275,10 +275,21 @@ class Memory:
                    if line.strip().startswith(("import ", "from "))]
         libs = ", ".join(imports[:5]) if imports else "standard library"
 
-        # 2. Key procedure (first 500 chars of code as a summary, not the full thing)
-        code_summary = successful_code[:500].strip()
-        if len(successful_code) > 500:
-            code_summary += "\n... [truncated]"
+        # 2. Extract python code block if present, otherwise save the mathematical derivation
+        code_summary = ""
+        if "```python" in successful_code:
+            try:
+                start = successful_code.find("```python") + 9
+                end = successful_code.find("```", start)
+                if end != -1:
+                    code_summary = "VERIFIED SCRIPT:\n" + successful_code[start:end].strip()
+            except Exception:
+                pass
+                
+        if not code_summary:
+            code_summary = successful_code[:2500].strip()
+            if len(successful_code) > 2500:
+                code_summary += "\n... [truncated]"
 
         doc = (
             f"Task: {task}\n"
