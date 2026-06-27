@@ -36,6 +36,36 @@ At startup, the system auto-calibrates to the available compute environment (CUD
 
 ---
 
+## 🛠️ Complete Technology Stack
+
+The system is constructed with a highly decoupled client-server architecture utilizing the following tools:
+
+### Frontend (User Interface)
+* **Framework:** React 19 (Functional components, hooks) with Vite (Ultra-fast build/dev tooling)
+* **Styling & Layout:** Vanilla CSS (Glassmorphism, custom dark theme, premium transitions, responsive flexbox/grid)
+* **Icons:** Lucide React
+* **Markdown & Parsing:** `react-markdown` (supports live rendering of LaTeX blocks, code tables, and syntax highlighting)
+* **Interactive Visualization:** Dynamic loading inside an isolated iframe sandbox utilizing `Plotly.js` and `Three.js` (WebGL)
+
+### Backend (Model Orchestrator & API Gateway)
+* **Framework:** FastAPI (Asynchronous, type-safe REST API endpoint validation)
+* **ASGI Server:** Uvicorn (Asynchronous web runner)
+* **Model Inference Engine:** Local `llama.cpp` server & HuggingFace integration (`transformers`, `accelerate`)
+* **Vector Database (RAG):** ChromaDB (Local SQLite-backed semantic vector storage for indexing past verified solutions)
+* **Real-time Web Access:** DuckDuckGo Search API (`ddgs`)
+* **System Metrics Monitoring:** `psutil` (Tracks active processes, CPU cores, and RAM utilization for EVM hot-swapping)
+
+### Verification Sandbox (Pre-Whitelisted Scientific & Cryptographic Libraries)
+* **Scientific Computing & Math:** `numpy`, `scipy` (Numerical solvers & ODE integrations), `sympy` (Symbolic algebraic solver), `pint` (Physical units validation)
+* **Theorem Proving & Constraints:** `z3-solver` (Z3 SMT Solver for math/logic boundaries)
+* **Biological & Molecular Physics:** `biopython`, `rdkit` (Molecular structures and sequence parsing)
+* **Data Science & ML:** `scikit-learn` (Regression, regression trees, forecasting), `statsmodels` (Time series models)
+* **Space Dynamics & Astrodynamics:** `astropy`, `rocketpy`
+* **Quantum Computing Simulations:** `qiskit`, `qutip`
+* **Cybersecurity & Cryptography:** `cryptography` (Fernet, AES, RSA), `scapy` (Interactive packet crafting/sniffing), `pyjwt`, `pycryptodome`
+
+---
+
 ## 🤖 6-Way Agentic Pipeline Architecture
 
 ```
