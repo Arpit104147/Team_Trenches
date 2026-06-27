@@ -71,9 +71,96 @@ Web Search    Execution       Sandbox         Data Cleaning    OpenCodeDS     Re
                          (Answer + Code + 3D Visual)
 ```
 
-<p align="center">
-  <img src="assets/pipeline_architecture.png" alt="DeepThinker Multi-Agent Pipeline Architecture" width="800"/>
-</p>
+```mermaid
+flowchart TD
+    %% ── INPUT & VISION ──
+    USER([👨‍💻 User Prompt & Uploaded Image]) --> INPUT{Has Image?}
+    
+    INPUT -->|Yes| QWEN_VL[👁️ Qwen-2.5-VL 7B Vision Parser]
+    INPUT -->|No| ROUTER
+    QWEN_VL -->|Transcribed Text Context| ROUTER[🧭 Phi-3.5 Mini Intent Router]
+
+    %% ── INTENT ROUTER ──
+    ROUTER -->|Classifies Intent| PATHS{Select Pathway}
+
+    %% ── 6-WAY PIPELINE PATHWAYS ──
+    PATHS -->|1. SIMPLE| PATH_SIMPLE[General & Simple Queries]
+    PATHS -->|2. CODING| PATH_CODING[Software Engineering Tasks]
+    PATHS -->|3. REASONING| PATH_REASONING[Mathematical & Logic Problems]
+    PATHS -->|4. PREDICTION| PATH_PREDICTION[Data Analysis & Forecasting]
+    PATHS -->|5. EXTREME SEARCH| PATH_EXTREME[Deep Research & Document Synthesis]
+    PATHS -->|6. 3D VIZ| PATH_3D[WebGL & Three.js 3D Simulations]
+
+    %% ── PATHWAY INTERNAL LOOPS ──
+    subgraph PathSimple [Simple Pipeline]
+        PATH_SIMPLE --> DDG[🌐 DuckDuckGo Search]
+        DDG --> PHI_ANS[Phi-3.5 Mini Direct Answer]
+    end
+
+    subgraph PathCoding [Coding Pipeline]
+        PATH_CODING --> DS_DRAFT[⚡ DeepSeek R1 Logic Draft]
+        DS_DRAFT --> OC_GEN[💻 OpenCodeInterpreter 7B Gen]
+        OC_GEN --> PY_SANDBOX{🛡️ Isolated Polyglot Sandbox}
+        PY_SANDBOX -->|Code Error| OC_FIX[OpenCodeInterpreter Fix Loop]
+        OC_FIX --> PY_SANDBOX
+        PY_SANDBOX -->|Passed| CODING_OUT[Verified Code Output]
+    end
+
+    subgraph PathReasoning [Reasoning Pipeline]
+        PATH_REASONING --> VT_PLAN[🧠 VibeThinker 3B Math Logic Plan]
+        VT_PLAN --> RS_VERIFY{🧮 Reasoning Sandbox Verify}
+        RS_VERIFY -->|Math Assertion Fail| VT_PLAN
+        RS_VERIFY -->|Passed| REASONING_OUT[Logical Proof & Derivations]
+    end
+
+    subgraph PathPrediction [Prediction Pipeline]
+        PATH_PREDICTION --> PREDICT_SCRAPE[🌐 DuckDuckGo Web Scrape]
+        PREDICT_SCRAPE --> SK_PLAN[💻 OpenCodeInterpreter 7B Data Sci Script]
+        SK_PLAN --> DS_SANDBOX{📊 Scikit-Learn Data Cleaning Sandbox}
+        DS_SANDBOX -->|NaN / Infinite Residues| SK_CLEAN[Data Cleaning Loop]
+        SK_CLEAN --> DS_SANDBOX
+        DS_SANDBOX -->|Passed| PREDICT_OUT[Forecasting Plots & Stats]
+    end
+
+    subgraph PathExtreme [Extreme Search Pipeline]
+        PATH_EXTREME --> EXT_SCRAPE[🌐 Multi-Source Deep Search]
+        EXT_SCRAPE --> DS_R1_SYN[⚡ DeepSeek R1 Synthesize & Compare]
+        DS_R1_SYN --> OC_PLOT[💻 OpenCode Plotly Script Gen]
+        OC_PLOT --> PLOTLY_SANDBOX{📈 Plotly JSON Execution Sandbox}
+        PLOTLY_SANDBOX -->|Plotly Error| OC_PLOT
+        PLOTLY_SANDBOX -->|Passed| EXTREME_OUT[Deep Analytical Report + Interactive Charts]
+    end
+
+    subgraph Path3D [3D Visualization Pipeline]
+        PATH_3D --> OC_WebGL[💻 OpenCode HTML/WebGL Canvas Gen]
+        OC_WebGL --> WebGL_SANDBOX{🎨 Three.js / Plotly.js Sandbox}
+        WebGL_SANDBOX -->|WebGL / DOM Error| OC_WebGL
+        WebGL_SANDBOX -->|Passed| WebGL_OUT[Live Interactive Glassmorphic Simulation]
+    end
+
+    %% ── CONTEXT MEMORY RAG ──
+    CHROMA[(🗄️ ChromaDB Vector RAG)] <-->|Save / Recall Logic| ROUTER
+
+    %% ── HARDWARE CONTROL ──
+    subgraph Hardware [Hardware Allocation Engine]
+        DMA[⚖️ Dynamic Memory Allocator]
+        DMA <-->|LRU Model Swap: RAM ↔ VRAM| GPU_VRAM[🟩 GPU VRAM / Intel XPU]
+    end
+
+    PHI_ANS & CODING_OUT & REASONING_OUT & PREDICT_OUT & EXTREME_OUT & WebGL_OUT --> OUT_RENDER[💻 React Frontend UI]
+
+    %% ── STYLING ──
+    classDef default fill:#1E1E1E,stroke:#4A4A4A,stroke-width:2px,color:#FFF;
+    classDef router fill:#5E2750,stroke:#9C27B0,stroke-width:2px,color:#FFF;
+    classDef sandbox fill:#E65100,stroke:#FF9800,stroke-width:2px,color:#FFF;
+    classDef memory fill:#1B5E20,stroke:#4CAF50,stroke-width:2px,color:#FFF;
+    classDef hardware fill:#45475a,stroke:#94e2d5,stroke-width:2px,color:#FFF;
+    
+    class ROUTER,PATHS router;
+    class PY_SANDBOX,RS_VERIFY,DS_SANDBOX,PLOTLY_SANDBOX,WebGL_SANDBOX sandbox;
+    class CHROMA memory;
+    class DMA,GPU_VRAM hardware;
+```
 
 ### Routing Pathways
 
