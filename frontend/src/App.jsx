@@ -374,8 +374,8 @@ const ArtifactSandbox = ({ htmlCode }) => {
         const loaderScript = tempDoc.createElement("script");
         loaderScript.textContent = `
           (function() {
-            const loadList = ${JSON.stringify(loadList)};
-            const inlineCodes = ${JSON.stringify(inlineCodes)};
+            const loadList = ${JSON.stringify(loadList).replace(/</g, '\\u003c')};
+            const inlineCodes = ${JSON.stringify(inlineCodes).replace(/</g, '\\u003c')};
             
             function loadNext() {
               if (loadList.length > 0) {
@@ -402,11 +402,8 @@ const ArtifactSandbox = ({ htmlCode }) => {
               }
             }
             
-            if (document.readyState === "loading") {
-              window.addEventListener("DOMContentLoaded", loadNext);
-            } else {
-              loadNext();
-            }
+            // Execute immediately since loaderScript is at the end of the body and DOM is ready
+            loadNext();
           })();
         `;
         tempDoc.body.appendChild(loaderScript);
