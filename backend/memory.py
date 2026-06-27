@@ -238,7 +238,7 @@ class Memory:
             
         def _get_numbers(t):
             import re
-            return set(re.findall(r'\b\d+(?:\.\d+)?\b', t))
+            return set(re.findall(r'-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b', t))
 
         task_words = _get_content_words(task)
         task_nums = _get_numbers(task)
@@ -257,7 +257,7 @@ class Memory:
                 continue
                 
             overlap = len(task_words & existing_words) / max(len(task_words), len(existing_words))
-            if overlap > 0.8:  # Higher threshold for content words to prevent false duplicate matching
+            if overlap > 0.95:  # Higher threshold for content words to prevent false duplicate matching
                 return True
         return False
 

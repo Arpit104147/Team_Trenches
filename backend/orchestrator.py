@@ -714,6 +714,28 @@ class AgentOrchestrator:
             else:
                 kwargs["flash_attn"] = True
 
+            if model_key == "qwen_vl":
+                model_dir = os.path.dirname(model_path)
+                mmproj_path = os.path.join(model_dir, "mmproj-BF16.gguf")
+                if os.path.exists(mmproj_path):
+                    try:
+                        from llama_cpp.llama_chat_format import Qwen25VLChatHandler
+                        kwargs["chat_handler"] = Qwen25VLChatHandler(clip_model_path=mmproj_path)
+                        print(f"👁️ Loaded Qwen2.5-VL chat handler with mmproj: {mmproj_path}")
+                    except Exception as e:
+                        print(f"⚠️ Failed to load Qwen25VLChatHandler: {e}")
+                else:
+                    mmproj_flat = os.path.join(os.path.dirname(model_dir), "mmproj-BF16.gguf")
+                    if os.path.exists(mmproj_flat):
+                        try:
+                            from llama_cpp.llama_chat_format import Qwen25VLChatHandler
+                            kwargs["chat_handler"] = Qwen25VLChatHandler(clip_model_path=mmproj_flat)
+                            print(f"👁️ Loaded Qwen2.5-VL chat handler with mmproj: {mmproj_flat}")
+                        except Exception as e:
+                            print(f"⚠️ Failed to load Qwen25VLChatHandler: {e}")
+                    else:
+                        print(f"⚠️ mmproj file not found at {mmproj_path} or {mmproj_flat}. Vision features may fail.")
+
             # Dual-GPU
             if self.dual_gpu_pipeline and not loading_on_cpu:
                 if model_key in ["deepseek_r1", "qwen_vl"]:
@@ -819,13 +841,42 @@ class AgentOrchestrator:
             status_callback("Qwen 2.5-VL parsing image...", "info", "qwen_vl", 5)
         llm = self._get_model("qwen_vl")
         vision_prompt = "Describe this image and extract all text and logic from it."
+        
+        # Convert image to base64 data URL
+        import base64
+        try:
+            with open(image_path, "rb") as f:
+                img_data = base64.b64encode(f.read()).decode("utf-8")
+            ext = os.path.splitext(image_path)[1].lower().replace(".", "")
+            mime = "image/jpeg"
+            if ext in ["png", "webp", "gif"]:
+                mime = f"image/{ext}"
+            data_url = f"data:{mime};base64,{img_data}"
+        except Exception as e:
+            return f"Error reading image: {e}"
+
         with self.inference_lock:
-            if callable(llm):
-                result = llm(vision_prompt, max_tokens=500)
-                return result if isinstance(result, str) else result['choices'][0]['text']
-            else:
-                res = llm(vision_prompt, max_tokens=500)
-                return res['choices'][0]['text']
+            # Construct message payload for vision chat completion
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": vision_prompt},
+                        {"type": "image_url", "image_url": {"url": data_url}}
+                    ]
+                }
+            ]
+            try:
+                res = llm.create_chat_completion(messages=messages, max_tokens=500)
+                return res["choices"][0]["message"]["content"]
+            except Exception as e:
+                print(f"⚠️ Vision chat completion failed: {e}. Falling back to standard completion...")
+                if callable(llm):
+                    result = llm(vision_prompt, max_tokens=500)
+                    return result if isinstance(result, str) else result['choices'][0]['text']
+                else:
+                    res = llm(vision_prompt, max_tokens=500)
+                    return res['choices'][0]['text']
 
     # =========================================================================
     # MAIN AGENTIC PIPELINE
@@ -1421,9 +1472,7 @@ class AgentOrchestrator:
         if not verified and not success and test_code:
             is_assertion_failure = "AssertionError" in output or "AssertionError" in output.replace("Assertion", "Assertion")
             is_test_script_crash = any(e in output for e in [
-                "SyntaxError", "TypeError", "NameError", "IndentationError",
-                "AttributeError", "ImportError", "ModuleNotFoundError",
-                "KeyError", "IndexError", "ZeroDivisionError"
+                "ImportError", "ModuleNotFoundError"
             ])
             if is_test_script_crash and not is_assertion_failure:
                 # The verification script itself crashed — the logic plan was never disproven.

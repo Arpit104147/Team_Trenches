@@ -14,6 +14,7 @@ MODEL_DEFINITIONS = {
     'qwen_vl': {
         'repo_id': 'unsloth/Qwen2.5-VL-7B-Instruct-GGUF',
         'filename': 'Qwen2.5-VL-7B-Instruct-UD-Q6_K_XL.gguf',
+        'mmproj_filename': 'mmproj-BF16.gguf',
         'name': 'Qwen-2.5-VL-7B (Vision/Doc Parsing)',
         'type': 'image_to_text',
     },
@@ -38,6 +39,7 @@ MODEL_DEFINITIONS = {
 }
 
 def get_model_filenames(definition):
+    filenames = []
     filename = definition["filename"]
     import re
     match = re.search(r'^(.*?)(\d+)-of-(\d+)(.*?)$', filename)
@@ -45,13 +47,15 @@ def get_model_filenames(definition):
         prefix, start, total, suffix = match.groups()
         total_shards = int(total)
         width = len(start)
-        filenames = []
         for i in range(1, total_shards + 1):
             shard_num = str(i).zfill(width)
             filenames.append(f"{prefix}{shard_num}-of-{total}{suffix}")
-        return filenames
     else:
-        return [filename]
+        filenames.append(filename)
+    
+    if "mmproj_filename" in definition:
+        filenames.append(definition["mmproj_filename"])
+    return filenames
 
 def is_model_downloaded(model_key):
     if model_key not in MODEL_DEFINITIONS:
