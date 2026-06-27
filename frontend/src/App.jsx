@@ -337,17 +337,23 @@ const ArtifactSandbox = ({ htmlCode }) => {
         const parser = new DOMParser();
         const tempDoc = parser.parseFromString(doc, "text/html");
         
+        const loadList = [];
+        const inlineCodes = [];
+
         // CRITICAL FIX: Prevent body onload from firing before our sequential loader finishes.
         // If the LLM generated `<body onload="init()">`, it would execute immediately 
-        // upon iframeDoc.write, throwing "Plotly is not defined" because the CDN hasn't loaded.
+        // upon iframeDoc.write, throwing "Plotly is not defined".
+        // Instead of just deleting it, we capture the initialization code and queue it 
+        // to run safely at the very end of our loader.
         if (tempDoc.body && tempDoc.body.hasAttribute("onload")) {
+          const onloadCode = tempDoc.body.getAttribute("onload");
           tempDoc.body.removeAttribute("onload");
+          if (onloadCode && onloadCode.trim()) {
+            inlineCodes.push(onloadCode);
+          }
         }
 
         const scripts = Array.from(tempDoc.querySelectorAll("script"));
-        
-        const loadList = [];
-        const inlineCodes = [];
         
         scripts.forEach(s => {
           if (s.getAttribute("id") === "sandbox-injection") return; // Keep injection active immediately
@@ -398,7 +404,7 @@ const ArtifactSandbox = ({ htmlCode }) => {
           })();
         `;
         tempDoc.body.appendChild(loaderScript);
-        doc = "<!DOCTYPE html>\\n" + tempDoc.documentElement.outerHTML;
+        doc = "<!DOCTYPE html>\n" + tempDoc.documentElement.outerHTML;
       } catch (parseErr) {
         console.error("Failed to apply sandbox script loader rewrite:", parseErr);
       }
