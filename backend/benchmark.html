@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeepThinker - Accelerator Benchmark Dashboard</title>
+    <title>DeepThink AIOS - Accelerator Benchmark Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
@@ -71,7 +71,7 @@
                 </div>
                 <div>
                     <h1 class="text-2xl md:text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-                        DeepThinker
+                        DeepThink AIOS
                     </h1>
                     <p class="text-sm md:text-base text-slate-400 font-medium">
                         Distributed Accelerator Benchmark Dashboard
@@ -206,7 +206,7 @@
                                     <th class="py-3.5 px-2 text-center text-emerald-400">Gemini 1.5 Pro</th>
                                     <th class="py-3.5 px-2 text-center text-purple-400 font-extrabold">Fable / SOTA</th>
                                     <th class="py-3.5 px-2 text-center text-slate-500 font-medium">Llama-3-70B</th>
-                                    <th class="py-3.5 px-3 text-center text-blue-400 bg-blue-500/5 rounded-t-2xl border-t border-x border-blue-500/20 font-extrabold">DeepThinker (Local)</th>
+                                    <th class="py-3.5 px-3 text-center text-blue-400 bg-blue-500/5 rounded-t-2xl border-t border-x border-blue-500/20 font-extrabold">DeepThink AIOS</th>
                                 </tr>
                             </thead>
                             <tbody class="text-xs md:text-sm text-slate-300 font-medium" id="baselineTableBody">
@@ -450,7 +450,7 @@
         }
 
         // Initial setup
-        renderTpuCores(BENCHMARK_STATE.workers);
+        renderTpuCores([{id:0,status:'Idle',task:'N/A',progress:0},{id:1,status:'Idle',task:'N/A',progress:0},{id:2,status:'Idle',task:'N/A',progress:0},{id:3,status:'Idle',task:'N/A',progress:0},{id:4,status:'Idle',task:'N/A',progress:0},{id:5,status:'Idle',task:'N/A',progress:0},{id:6,status:'Idle',task:'N/A',progress:0},{id:7,status:'Idle',task:'N/A',progress:0}]);
         renderBaselines(null, 0.0);
         
         // Auto check status on load

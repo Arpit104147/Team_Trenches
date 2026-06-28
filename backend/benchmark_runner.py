@@ -26,17 +26,17 @@ BENCHMARK_STATE = {
     "workers": [{"id": i, "status": "Idle", "task": "N/A", "progress": 0} for i in range(8)],
     "logs": [],
     "comparison_baselines": {
-        "HumanEval": {"gpt4": 90.2, "claude35_sonnet": 92.0, "llama3_70b": 86.0, "deepthinker_tpu": 91.5},
-        "MBPP": {"gpt4": 86.4, "claude35_sonnet": 90.5, "llama3_70b": 81.2, "deepthinker_tpu": 88.0},
-        "GSM8K": {"gpt4": 92.0, "claude35_sonnet": 96.4, "llama3_70b": 93.0, "deepthinker_tpu": 95.2},
-        "MATH": {"gpt4": 42.5, "claude35_sonnet": 71.1, "llama3_70b": 41.0, "deepthinker_tpu": 58.4},
-        "GPQA (PhD Science)": {"gpt4": 53.6, "claude35_sonnet": 65.0, "llama3_70b": 41.4, "deepthinker_tpu": 61.2},
-        "AIME (Olympiad Logic)": {"gpt4": 16.7, "claude35_sonnet": 23.3, "llama3_70b": 10.0, "deepthinker_tpu": 26.5},
-        "MuSR (PhD Logic)": {"gpt4": 45.0, "claude35_sonnet": 48.5, "llama3_70b": 38.0, "deepthinker_tpu": 51.0},
-        "MMLU-Pro (Prof STEM)": {"gpt4": 72.6, "claude35_sonnet": 77.0, "llama3_70b": 61.0, "deepthinker_tpu": 74.5},
-        "SWE-bench Lite": {"gpt4": 13.0, "claude35_sonnet": 27.3, "llama3_70b": 3.8, "deepthinker_tpu": 10.5},
-        "SWE-bench Pro": {"gpt4": 8.0, "claude35_sonnet": 18.2, "llama3_70b": 1.5, "deepthinker_tpu": 6.2},
-        "SearchQA / HotpotQA": {"gpt4": 85.0, "claude35_sonnet": 88.0, "llama3_70b": 82.0, "deepthinker_tpu": 84.5}
+        "HumanEval": {"gpt4": 90.2, "claude35_sonnet": 92.0, "llama3_70b": 86.0, "deepthink_aios": 91.5},
+        "MBPP": {"gpt4": 86.4, "claude35_sonnet": 90.5, "llama3_70b": 81.2, "deepthink_aios": 88.0},
+        "GSM8K": {"gpt4": 92.0, "claude35_sonnet": 96.4, "llama3_70b": 93.0, "deepthink_aios": 95.2},
+        "MATH": {"gpt4": 42.5, "claude35_sonnet": 71.1, "llama3_70b": 41.0, "deepthink_aios": 58.4},
+        "GPQA (PhD Science)": {"gpt4": 53.6, "claude35_sonnet": 65.0, "llama3_70b": 41.4, "deepthink_aios": 61.2},
+        "AIME (Olympiad Logic)": {"gpt4": 16.7, "claude35_sonnet": 23.3, "llama3_70b": 10.0, "deepthink_aios": 26.5},
+        "MuSR (PhD Logic)": {"gpt4": 45.0, "claude35_sonnet": 48.5, "llama3_70b": 38.0, "deepthink_aios": 51.0},
+        "MMLU-Pro (Prof STEM)": {"gpt4": 72.6, "claude35_sonnet": 77.0, "llama3_70b": 61.0, "deepthink_aios": 74.5},
+        "SWE-bench Lite": {"gpt4": 13.0, "claude35_sonnet": 27.3, "llama3_70b": 3.8, "deepthink_aios": 10.5},
+        "SWE-bench Pro": {"gpt4": 8.0, "claude35_sonnet": 18.2, "llama3_70b": 1.5, "deepthink_aios": 6.2},
+        "SearchQA / HotpotQA": {"gpt4": 85.0, "claude35_sonnet": 88.0, "llama3_70b": 82.0, "deepthink_aios": 84.5}
     }
 }
 
