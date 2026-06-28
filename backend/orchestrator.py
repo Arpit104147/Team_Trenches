@@ -3552,7 +3552,9 @@ class AgentOrchestrator:
 
         reasoning_sys = (
             "You are a rigorous scientific researcher and expert logic reasoner.\n\n"
-            "ACCURACY REQUIREMENTS:\n"
+            "MANDATORY FORMATTING RULES:\n"
+            "0. You MUST wrap all of your internal reasoning, derivations, and scratchpad work inside <think>...</think> tags. "
+            "After closing the </think> tag, you MUST provide the final, polished, and beautifully formatted answer. Do not output raw thoughts outside of the think tags.\n"
             "1. Think step by step. Show your work for every derivation.\n"
             "2. State all assumptions explicitly at the beginning.\n"
             "3. Define all variables with their units before using them.\n"
