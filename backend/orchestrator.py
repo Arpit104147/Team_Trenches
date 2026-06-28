@@ -286,11 +286,11 @@ class AgentOrchestrator:
                     else:
                         vram_allowed_ceiling = 2048
                 
-                # GPU Architecture check: older GPUs (P100, T4, V100) lack hardware Flash Attention.
+                # GPU Architecture check: older GPUs (P100) lack hardware Flash Attention.
                 # Standard attention memory scales quadratically. Cap context to prevent OOM.
                 try:
                     major, minor = torch.cuda.get_device_capability(0)
-                    if major < 8:  # SM 6.0 (P100), SM 7.5 (T4)
+                    if major < 7:  # SM 6.0 (P100) or older
                         # Without Flash Attention, attention memory scales quadratically.
                         # Cap at 2048 on older GPUs to prevent quadratic VRAM OOM crashes.
                         vram_allowed_ceiling = min(2048, vram_allowed_ceiling)
@@ -720,7 +720,7 @@ class AgentOrchestrator:
             if torch and torch.cuda.is_available() and not loading_on_cpu:
                 try:
                     major, _ = torch.cuda.get_device_capability(0)
-                    if major < 8:
+                    if major < 7:
                         is_older_gpu = True
                 except Exception:
                     pass
@@ -2823,8 +2823,9 @@ class AgentOrchestrator:
         if task_type == "SIMPLE":
             if status_callback:
                 status_callback("Answering directly...", "success", "router", 100)
-            safe = self._crunch_prompt(enriched_prompt, "router", router_ctx - self.max_tokens, status_callback, router_llm=router_llm)
-            res = self._call_model(router_llm, safe, max_tokens=self.max_tokens, temperature=0.6)
+            simple_gen_tokens = min(512, self.max_tokens)
+            safe = self._crunch_prompt(enriched_prompt, "router", router_ctx - simple_gen_tokens, status_callback, router_llm=router_llm)
+            res = self._call_model(router_llm, safe, max_tokens=simple_gen_tokens, temperature=0.6)
             return self._clean_cutoff_notes(res)
 
         # ══════════════════════════════════════════════════════════════════
