@@ -138,12 +138,15 @@ flowchart TD
     OC_DRAFT --> CODING_SB{"Execution Sandbox"}
     
     CODING_SB -->|Verified Success| CODE_PASS["Output final Verified Code Block"]
-    CODING_SB -->|Syntax Error| CODE_LINT["OpenCode Linter: Patch specific error"]
+    
+    CODING_SB -->|Syntax/Logic Error| CODE_FIX_SYS["Load debug_sys: Dedicated Debug Prompt"]
+    CODE_FIX_SYS -->|Level 1: Surgical Patch| CODE_LINT["OpenCode Linter: Patch error in place"]
     CODE_LINT --> CODING_SB
     
-    CODING_SB -->|Logic Error| CODE_FIX["Reflexion Loop: OpenCode attempts logic fix"]
+    CODE_FIX_SYS -->|Level 2: Reflexion Loop| CODE_FIX["OpenCode attempts logic fix"]
     CODE_FIX --> CODING_SB
-    CODE_FIX -->|Escalate| DS_CODE_FIX["DeepSeek R1-7B corrects code using traceback"]
+    
+    CODE_FIX_SYS -->|Level 3: Escalation| DS_CODE_FIX["DeepSeek R1-7B: Emergency traceback patch"]
     DS_CODE_FIX --> CODING_SB
 
     %% ── 4. PREDICTION PATHWAY ──
