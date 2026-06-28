@@ -2309,6 +2309,8 @@ class AgentOrchestrator:
             "You are an expert Python data scientist. Write production-grade ML scripts using pandas, "
             "scikit-learn, numpy, and scipy. Handle missing data (NaN), parse dates, and use robust "
             "regression methods. Always validate your data before fitting models.\n"
+            "CRITICAL: NEVER attempt to load external files like 'data.csv' or 'dataset.csv' unless a specific file path is provided in the prompt. "
+            "You MUST generate synthetic data arrays in code (e.g. using np.random.randn, np.linspace, pd.date_range) so the script can run completely standalone without any external files.\n"
             "CRITICAL OUTPUT FORMAT: At the end of the script, print a JSON block with this exact format:\n"
             'print("PREDICTIVE_METRICS:" + json.dumps({"metric_name": "R²", "metric_value": r2_score, '
             '"forecast": [list_of_predictions], "dates": [list_of_labels]}))\n'
@@ -2325,7 +2327,7 @@ class AgentOrchestrator:
             f"5. Generate future predictions (5-10 steps ahead).\n"
             f"6. Print PREDICTIVE_METRICS JSON at the end (see system prompt format).\n"
             f"7. Do NOT use matplotlib, plotly, or any visualization. Only compute and print.\n"
-            f"8. If data is insufficient, create synthetic sample data based on the topic.\n\n"
+            f"8. CRITICAL: The execution environment has NO external files. Do NOT use pd.read_csv('data.csv'). You MUST generate realistic synthetic data using pandas and numpy (np.random) directly in the script.\n\n"
             f"Context & Data:\n{enriched_prompt[:6000]}\n\n"
             f"Output the complete script in ```python``` blocks."
         )
