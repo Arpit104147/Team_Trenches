@@ -253,7 +253,11 @@ class AgentOrchestrator:
 
         # Check GPU VRAM margins
         vram_allowed_ceiling = ram_allowed_ceiling
-        if torch and torch.cuda.is_available():
+        if not (torch and torch.cuda.is_available()):
+            # Without CUDA, llama.cpp runs on Vulkan, OpenCL, or CPU where Flash Attention is disabled.
+            # We must strictly cap context to 8192 to prevent quadratic memory growth segfaults.
+            vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
+        else:
             try:
                 free_vram, total_vram = torch.cuda.mem_get_info(0)
                 free_vram_gb = free_vram / (1024 ** 3)
