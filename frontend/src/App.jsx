@@ -665,14 +665,52 @@ const splitSpecialSegments = (text) => {
   return segments;
 };
 
-const MessageRenderer = ({ text }) => {
+const MessageRenderer = ({ text, animate = false }) => {
   // Subscribe to KaTeX load event — triggers re-render when KaTeX finishes loading
   // eslint-disable-next-line no-unused-vars
   const katexReady = useKatexReady();
+  const [displayedText, setDisplayedText] = useState(animate ? "" : text);
 
-  if (!text) return null;
+  useEffect(() => {
+    if (!animate) {
+      setDisplayedText(text);
+      return;
+    }
 
-  const segments = splitSpecialSegments(text);
+    // Typewriter effect: chunking for speed and smoothness
+    let currentLength = 0;
+    const step = 8;
+    const intervalTime = 12;
+
+    const interval = setInterval(() => {
+      currentLength += step;
+      if (currentLength >= text.length) {
+        setDisplayedText(text);
+        clearInterval(interval);
+      } else {
+        let targetLength = currentLength;
+        const sub = text.substring(0, targetLength);
+        
+        // Ensure comments/tags are not sliced partially
+        const openComments = (sub.match(/<!--/g) || []).length;
+        const closeComments = (sub.match(/-->/g) || []).length;
+        if (openComments > closeComments) {
+          const nextClose = text.indexOf("-->", targetLength);
+          if (nextClose !== -1) {
+            targetLength = nextClose + 3;
+          }
+        }
+        
+        setDisplayedText(text.substring(0, targetLength));
+      }
+    }, intervalTime);
+
+    return () => clearInterval(interval);
+  }, [text, animate]);
+
+  if (!displayedText) return null;
+
+  const segments = splitSpecialSegments(displayedText);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -1377,7 +1415,7 @@ export default function App() {
                     {msg.type === "user" ? (
                       <UserMessage text={msg.text} />
                     ) : (
-                      <MessageRenderer text={msg.text} />
+                      <MessageRenderer text={msg.text} animate={i === history.length - 1 && !isGenerating} />
                     )}
                   </div>
                 </div>
