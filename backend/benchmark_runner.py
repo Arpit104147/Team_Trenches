@@ -10,6 +10,27 @@ from typing import Dict, List, Any, Optional
 # Add parent directory to path to enable backend imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+def get_default_worker_count():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            num_workers = max(1, torch.cuda.device_count())
+            try:
+                if num_workers == 1:
+                    total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                    if total_vram_gb >= 70:
+                        return 12
+                    elif total_vram_gb >= 35:
+                        return 4
+                    elif total_vram_gb >= 22:
+                        return 2
+            except Exception:
+                pass
+            return num_workers
+    except Exception:
+        pass
+    return max(1, (os.cpu_count() or 8) // 4)
+
 # Global state for tracking the active benchmark run
 BENCHMARK_STATE = {
     "active": False,
@@ -23,7 +44,7 @@ BENCHMARK_STATE = {
     "avg_latency": 0.0,
     "elapsed_seconds": 0.0,
     "history": {},
-    "workers": [{"id": i, "status": "Idle", "task": "N/A", "progress": 0} for i in range(8)],
+    "workers": [{"id": i, "status": "Idle", "task": "N/A", "progress": 0} for i in range(get_default_worker_count())],
     "logs": [],
     "comparison_baselines": {
         "HumanEval": {"gpt4": 90.2, "claude35_sonnet": 92.0, "llama3_70b": 86.0, "deepthink_aios": 91.5},
@@ -446,11 +467,13 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
                 pass
             hardware_name = f"Nvidia GPU (x{num_workers} Parallel Workers)"
         else:
-            num_workers = 8
-            hardware_name = "TPU v5e-8 Host CPU (x8 cores)"
+            cpu_count = os.cpu_count() or 8
+            num_workers = max(1, cpu_count // 4)
+            hardware_name = f"TPU v5e-8 Host CPU (x{num_workers} Workers on {cpu_count} Cores)"
     except Exception:
-        num_workers = 8
-        hardware_name = "TPU v5e-8 Host CPU (x8 cores)"
+        cpu_count = os.cpu_count() or 8
+        num_workers = max(1, cpu_count // 4)
+        hardware_name = f"TPU v5e-8 Host CPU (x{num_workers} Workers on {cpu_count} Cores)"
 
     # Nuclear Option: Proactively unload all models from VRAM to make room for the benchmark!
     if orchestrator and hasattr(orchestrator, "unload_all_models"):
