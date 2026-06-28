@@ -2215,9 +2215,12 @@ class AgentOrchestrator:
                 
                 result = f"### Prediction & Forecasting Analysis\n\n"
                 if metrics_line:
-                    result += f"<!--PREDICTIVE_METRICS_JSON-->\n{metrics_line}\n<!--/PREDICTIVE_METRICS_JSON-->\n\n"
+                    result += f"=== PREDICTIVE_METRICS ===\n{metrics_line}\n==========================\n\n"
                 result += f"```python\n{code}\n```\n"
-                return result
+                
+                # Check if a 3D visualization needs to be generated and appended
+                viz = self._check_3d_gate(prompt, result, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+                return f"{result}{viz}"
             
             # Data cleaning loop — fix errors
             if status_callback:
@@ -2239,7 +2242,9 @@ class AgentOrchestrator:
             ))
 
         # Fallback
-        return f"### Prediction Pipeline (Best-Effort)\n\n**Execution failed after {max_attempts} attempts.**\n\n```python\n{code}\n```\n\n**Last Error:**\n```\n{output[:500]}\n```"
+        fallback_res = f"### Prediction Pipeline (Best-Effort)\n\n**Execution failed after {max_attempts} attempts.**\n\n```python\n{code}\n```\n\n**Last Error:**\n```\n{output[:500]}\n```"
+        viz = self._check_3d_gate(prompt, fallback_res, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+        return f"{fallback_res}{viz}"
 
     # =========================================================================
     # EXTREME WEBSEARCH PIPELINE — Deep Analysis + Chart Generation
