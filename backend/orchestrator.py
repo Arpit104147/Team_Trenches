@@ -2127,7 +2127,7 @@ class AgentOrchestrator:
             warning_msg = ""
             if bypass_verification:
                 warning_msg = "\n<!-- Note: HTML verification bypassed due to environment/runtime differences. Rendering best-effort. -->"
-            return f"\n\n### 3D Interactive Visualization (Live Artifact){warning_msg}\n<!--ARTIFACT_HTML-->\n{html_extract}\n<!--/ARTIFACT_HTML-->"
+            return f"\n\n## 3D Interactive Visualization (Live Artifact){warning_msg}\n<!--ARTIFACT_HTML-->\n{html_extract}\n<!--/ARTIFACT_HTML-->"
 
         # ── Strategy 2: Python Plotly (backend sandbox verified fallback) ──────────
         if status_callback:
@@ -2346,7 +2346,7 @@ class AgentOrchestrator:
             ))
 
         if not code or len(code.strip()) < 50:
-            return f"### Prediction Pipeline\nFailed to generate a valid ML script for: {prompt[:200]}"
+            return f"## Prediction Pipeline\nFailed to generate a valid ML script for: {prompt[:200]}"
 
         # Execute and verify
         max_attempts = 3
@@ -2368,7 +2368,7 @@ class AgentOrchestrator:
                         metrics_line = line.split("PREDICTIVE_METRICS:", 1)[1].strip()
                         break
                 
-                result = f"### Prediction & Forecasting Analysis\n\n"
+                result = f"## Prediction & Forecasting Analysis\n\n"
                 if metrics_line:
                     result += f"=== PREDICTIVE_METRICS ===\n{metrics_line}\n==========================\n\n"
                 result += f"```python\n{code}\n```\n"
@@ -2382,7 +2382,7 @@ class AgentOrchestrator:
             if ok and output and len(output.strip()) > 20:
                 if status_callback:
                     status_callback("🔮 Script ran but metrics format missing — returning best-effort result.", "warning", "opencode", 80)
-                result = f"### Prediction & Forecasting Analysis\n\n{output}\n\n```python\n{code}\n```\n"
+                result = f"## Prediction & Forecasting Analysis\n\n{output}\n\n```python\n{code}\n```\n"
                 viz = self._check_3d_gate(prompt, result, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                 return f"{result}{viz}"
             
@@ -2424,7 +2424,7 @@ class AgentOrchestrator:
             ))
 
         # Fallback
-        fallback_res = f"### Prediction Pipeline (Best-Effort)\n\n**Execution failed after {max_attempts} attempts.**\n\n```python\n{code}\n```\n\n**Last Error:**\n```\n{output[:500]}\n```"
+        fallback_res = f"## Prediction Pipeline (Best-Effort)\n\n**Execution failed after {max_attempts} attempts.**\n\n```python\n{code}\n```\n\n**Last Error:**\n```\n{output[:500]}\n```"
         viz = self._check_3d_gate(prompt, fallback_res, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
         return f"{fallback_res}{viz}"
 
@@ -2508,9 +2508,9 @@ class AgentOrchestrator:
             status_callback("🔬 Extreme WebSearch Analysis complete!", "success", "deepseek_r1", 100)
 
         # Build the final response
-        result = f"### 🔬 Deep Analysis Report\n\n{analysis}\n\n"
+        result = f"## 🔬 Deep Analysis Report\n\n{analysis}\n\n"
         if chart_json:
-            result += f"### Interactive Analysis Charts\n<!--PLOTLY_JSON-->\n{chart_json}\n<!--/PLOTLY_JSON-->\n"
+            result += f"## Interactive Analysis Charts\n<!--PLOTLY_JSON-->\n{chart_json}\n<!--/PLOTLY_JSON-->\n"
         
         self.memory.save(prompt, result[:3000])
         return result
@@ -2987,13 +2987,13 @@ class AgentOrchestrator:
 
         # Construct a beautiful, clean, deterministic response report
         final_response = (
-            f"### 💡 Logic & Architectural Plan\n"
+            f"## 💡 Logic & Architectural Plan\n"
             f"{compiled_plan.strip()}\n\n"
-            f"### ⚙️ Sandbox Execution Output\n"
+            f"## ⚙️ Sandbox Execution Output\n"
             f"```text\n"
             f"{clean_output.strip()}\n"
             f"```\n\n"
-            f"### 💻 Verified Working Code\n"
+            f"## 💻 Verified Working Code\n"
             f"The complete, fully verified functional {lang_name} script is presented below:\n\n"
             f"```{req_lang}\n"
             f"{code.strip()}\n"
@@ -3544,7 +3544,7 @@ class AgentOrchestrator:
             print(f"Failed to save unverified code draft: {es}")
 
         router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
-        return f"### Logic Plan\n{compiled_plan}\n\n### Execution Failed\n{output}\n\n### Code\n```python\n{code}\n```"
+        return f"## Logic Plan\n{compiled_plan}\n\n## Execution Failed\n{output}\n\n## Code\n```python\n{code}\n```"
 
     # =====================================================================
     # REASONING PIPELINE — Playground-Verified or LLM Debate
@@ -3568,30 +3568,34 @@ class AgentOrchestrator:
         ds_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
 
         reasoning_sys = (
-            "You are a rigorous scientific researcher and expert logic reasoner.\n\n"
+            "You are a rigorous scientific researcher, expert academic author, and master logic reasoner.\n\n"
             "MANDATORY FORMATTING RULES:\n"
             "0. You MUST wrap all of your internal reasoning, derivations, and scratchpad work inside <think>...</think> tags. "
             "After closing the </think> tag, you MUST provide the final, polished, and beautifully formatted answer. Do not output raw thoughts outside of the think tags.\n"
-            "1. Think step by step. Show your work for every derivation.\n"
-            "2. State all assumptions explicitly at the beginning.\n"
-            "3. Define all variables with their units before using them.\n"
-            "4. For physics: verify dimensional consistency of every equation. Use standard literature formulas exactly. "
+            "1. PROVIDE LONG, EXHAUSTIVE, AND DETAILED EXPLANATIONS: Do not summarize or give brief answers. "
+            "Write comprehensive, academic-grade explanations. Introduce the physical/mathematical concepts from first principles, "
+            "explain the physical mechanism in depth, show intermediate derivations, and analyze the physical significance of the results.\n"
+            "2. Think step by step. Show your work for every derivation.\n"
+            "3. State all assumptions explicitly at the beginning.\n"
+            "4. Define all variables with their units before using them.\n"
+            "5. For physics: verify dimensional consistency of every equation. Use standard literature formulas exactly. "
             "For example, E x B drift velocity is v = (E x B)/B^2 (it is independent of mass and charge).\n"
-            "5. For math: check boundary conditions and special cases.\n"
-            "6. Avoid common traps: linear vs. quadratic drag, 2D vs. 3D decomposition, "
+            "6. For math: check boundary conditions and special cases.\n"
+            "7. Avoid common traps: linear vs. quadratic drag, 2D vs. 3D decomposition, "
             "sign conventions, reference frame consistency.\n"
-            "7. If you cite a formula, state where it comes from (Newton's 2nd law, etc.).\n"
-            "8. Complete ALL derivations fully — do not skip steps or say 'it can be shown that'.\n"
-            "9. If uncertain about a specific value or fact, say so explicitly rather than guessing.\n"
-            "10. IMPORTANT: If 'Relevant past experience' or 'Web Context' is provided, use it ONLY for structure, formulas, or syntax logic. "
+            "8. If you cite a formula, state where it comes from (Newton's 2nd law, etc.).\n"
+            "9. Complete ALL derivations fully — do not skip steps or say 'it can be shown that'.\n"
+            "10. If uncertain about a specific value or fact, say so explicitly rather than guessing.\n"
+            "11. IMPORTANT: If 'Relevant past experience' or 'Web Context' is provided, use it ONLY for structure, formulas, or syntax logic. "
             "Do NOT copy the physical system or specific numeric values if they differ from the User Query. Always prioritize the User Query's exact physics system and exact variables.\n"
-            "11. THINKING CONSTRAINT: Be concise, structured, and focused in your thinking thoughts. Avoid looping or repeating the "
+            "12. THINKING CONSTRAINT: Be concise, structured, and focused in your thinking thoughts. Avoid looping or repeating the "
             "same mathematical derivations. State your reasoning path clearly and proceed directly to the solution once verified.\n"
-            "12. MATHEMATICAL DETAILS & FORMULA FORMATTING: You MUST write out all algebraic equations, derivative steps, and algebraic manipulations in clear LaTeX format.\n"
+            "13. RIGOROUS LATEX INTEGRATION: You MUST write out all algebraic equations, physical laws, variables, derivative steps, and algebraic manipulations in clear LaTeX format.\n"
+            "    - Use single dollar signs $...$ for inline equations and variables (e.g., $E$, $m$, $v_d$).\n"
+            "    - Use double dollar signs $$...$$ for standalone display equations.\n"
             "    - NEVER wrap formulas, derivatives, or equations in backtick code blocks (e.g. ``` or `). Code blocks must only be used for actual runnable programming code, never for text math equations.\n"
-            "    - ALWAYS format mathematical equations using proper LaTeX delimiters: use single dollar signs $...$ for inline equations, and double dollar signs $$...$$ for display block equations.\n"
             "    - If numerical constants are specified in the prompt, substitute them and output the final calculated numerical answers.\n"
-            "13. BIOCHEMISTRY FORMULA CORRECTNESS: For enzyme kinetics equations (Michaelis-Menten, Lineweaver-Burk, etc.), "
+            "14. BIOCHEMISTRY FORMULA CORRECTNESS: For enzyme kinetics equations (Michaelis-Menten, Lineweaver-Burk, etc.), "
             "you MUST verify the DIRECTIONALITY of your derived formula before presenting it. For example: "
             "in Competitive Inhibition, the apparent Km INCREASES (Km_app = Km * (1 + [I]/Ki)) while Vmax stays the same. "
             "In Uncompetitive Inhibition, both apparent Km and Vmax DECREASE. In Non-competitive Inhibition, Km stays the same but Vmax decreases. "
@@ -3649,7 +3653,7 @@ class AgentOrchestrator:
                         self.memory.save(prompt, ds_answer)
                         router_llm = None; ds_llm = None; gc.collect()
                         viz = self._check_3d_gate(prompt, ds_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        return f"### Verified Answer\n{ds_answer}{viz}"
+                        return f"## Verified Answer\n{ds_answer}{viz}"
 
                     # Fetch quick helper web search context to resolve unknown concepts immediately
                     helper_search_context = ""
@@ -3697,7 +3701,7 @@ class AgentOrchestrator:
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        return f"### Verified Answer\n{vibe_answer}{viz}"
+                        return f"## Verified Answer\n{vibe_answer}{viz}"
                     # Don't let ds_safe grow unboundedly — cap the appended errors
                     error_summary = pg_out[:300]
                     if len(ds_safe) + len(error_summary) < (ds_ctx - gen_tokens - 200) * 3:
@@ -3764,7 +3768,7 @@ class AgentOrchestrator:
                         self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
                         router_llm = None; ds_llm = None; gc.collect()
                         viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        return f"### Verified Answer\n{vibe_answer}{viz}"
+                        return f"## Verified Answer\n{vibe_answer}{viz}"
             except Exception as es:
                 print(f"Emergency reasoning search recovery failed: {es}")
 
@@ -3788,7 +3792,7 @@ class AgentOrchestrator:
 
             router_llm = None; ds_llm = None; gc.collect()
             viz = self._check_3d_gate(prompt, final_ans, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-            return f"### Execution Failed (Best-Effort Draft)\n{final_ans}{viz}"
+            return f"## Execution Failed (Best-Effort Draft)\n{final_ans}{viz}"
 
         else:
             # ── Standard LLM Debate (non-testable reasoning) ─────────────
@@ -3801,5 +3805,5 @@ class AgentOrchestrator:
             viz = self._check_3d_gate(prompt, compiled, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
             if status_callback:
                 status_callback("Done!", "success", "router", 100)
-            return f"### Successfully Generated Answer\n{compiled}{viz}"
+            return f"## Successfully Generated Answer\n{compiled}{viz}"
 
