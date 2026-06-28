@@ -3417,9 +3417,16 @@ class AgentOrchestrator:
                         )
                     fix_p += f"6. Output the COMPLETE corrected script in ```{req_lang}``` blocks."
 
+                    debug_sys = (
+                        f"You are an expert {lang_name} debugger and software engineer.\n"
+                        f"Your sole objective is to identify the root cause of the syntax or runtime error in the provided code, "
+                        f"and rewrite the complete corrected script in a ```{req_lang}``` block. Do NOT alter the core algorithm or logic, "
+                        f"just fix the bug, ensure all imports are present, and make it fully functional."
+                    )
+
                     # Try OpenCode first (already loaded, no model swap needed)
                     oc_fix = self._get_model("opencode", required_ctx=oc_ctx)
-                    code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_fix, fix_p, gen_tokens, gen_temp, system_prompt=sys_prompt)))
+                    code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_fix, fix_p, gen_tokens, gen_temp, system_prompt=debug_sys)))
                     ok, output = self.sandbox.execute(code, language=req_lang)
                     if ok:
                         if status_callback:
@@ -3433,7 +3440,7 @@ class AgentOrchestrator:
                     if status_callback:
                         status_callback(f"DeepSeek-R1 correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "deepseek_r1", 80 + rnd*10)
                     ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
-                    code = Sandbox.extract_code(self._strip_thinking(self._call_model(ds_llm, fix_p, gen_tokens, gen_temp, system_prompt=sys_prompt)))
+                    code = Sandbox.extract_code(self._strip_thinking(self._call_model(ds_llm, fix_p, gen_tokens, gen_temp, system_prompt=debug_sys)))
                     ok, output = self.sandbox.execute(code, language=req_lang)
                     if ok:
                         if status_callback:
@@ -3506,7 +3513,8 @@ class AgentOrchestrator:
                             f"Using this traceback, rewrite the complete functional Python script to fix the error.\n"
                             f"Output only the complete corrected script in a ```python``` block."
                         )
-                        patch_resp = self._strip_thinking(self._call_model(ds_llm, patch_prompt, gen_tokens, gen_temp, system_prompt=coder_sys))
+                        debug_sys = "You are an expert Python debugger. Fix the error in the script. Output only code."
+                        patch_resp = self._strip_thinking(self._call_model(ds_llm, patch_prompt, gen_tokens, gen_temp, system_prompt=debug_sys))
                         if "```" in patch_resp:
                             code = Sandbox.extract_code(patch_resp)
                             ok, output = self.sandbox.execute(code)
