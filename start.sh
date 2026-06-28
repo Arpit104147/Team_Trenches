@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Cleanly terminate all child processes on exit
-trap "echo ''; echo 'Shutting down DeepThinker...'; pkill -f 'backend/app.py' 2>/dev/null; pkill -f 'vite' 2>/dev/null; sleep 1; exit 0" SIGINT SIGTERM EXIT
+trap "echo ''; echo 'Shutting down DeepThink AIOS...'; pkill -f 'backend/app.py' 2>/dev/null; pkill -f 'vite' 2>/dev/null; sleep 1; exit 0" SIGINT SIGTERM EXIT
 
 echo "============================================="
-echo "   Starting DeepThinker Multi-Agent Hub...   "
+echo "   Starting DeepThink AIOS...   "
 echo "============================================="
 
 # Intel Iris Xe iGPU environment variables
