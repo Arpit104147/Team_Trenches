@@ -968,7 +968,98 @@ class AgentOrchestrator:
         # --- Case 3: No think tags at all — return as-is ---
         return text.strip()
 
+    # =========================================================================
+    # AGENT IDE — Incremental Patching Engine
+    # =========================================================================
+    def _extract_error_line(self, traceback_text):
+        """Extract the line number of the crash from a Python traceback string."""
+        if not traceback_text:
+            return None
+        # Match patterns like: File "<string>", line 42
+        matches = re.findall(r'(?:File\s+"[^"]*",\s+line\s+(\d+))|(?:line\s+(\d+))', traceback_text)
+        if matches:
+            # Take the last match (deepest frame in the traceback)
+            last = matches[-1]
+            line_num = int(last[0] or last[1])
+            return line_num
+        return None
 
+    def _get_code_context_window(self, code, error_line, window=10):
+        """Return a numbered code window around the error line for targeted patching."""
+        lines = code.split('\n')
+        start = max(0, error_line - window - 1)
+        end = min(len(lines), error_line + window)
+        context_lines = []
+        for i in range(start, end):
+            marker = " >>>" if (i + 1) == error_line else "    "
+            context_lines.append(f"{marker} {i+1:4d} | {lines[i]}")
+        return '\n'.join(context_lines)
+
+    def _apply_search_replace_patch(self, original_code, patch_text):
+        """Parse Aider-style <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks and apply them."""
+        if not patch_text or '<<<<<<< SEARCH' not in patch_text:
+            return None
+        patched = original_code
+        # Split into individual search/replace blocks
+        blocks = re.split(r'<<<<<<< SEARCH\s*\n', patch_text)
+        applied = 0
+        for block in blocks[1:]:  # Skip content before first marker
+            parts = re.split(r'\n=======\s*\n', block, maxsplit=1)
+            if len(parts) != 2:
+                continue
+            search_text = parts[0]
+            replace_and_rest = parts[1]
+            # Extract replacement content (everything before >>>>>>> REPLACE)
+            replace_parts = re.split(r'\n>>>>>>> REPLACE', replace_and_rest, maxsplit=1)
+            replace_text = replace_parts[0]
+            # Apply the patch — search_text must exist exactly once
+            if search_text in patched:
+                count = patched.count(search_text)
+                if count == 1:
+                    patched = patched.replace(search_text, replace_text, 1)
+                    applied += 1
+                else:
+                    # Multiple matches — skip to avoid ambiguity
+                    continue
+            else:
+                # Try stripping trailing whitespace from each line for fuzzy matching
+                search_lines = [l.rstrip() for l in search_text.split('\n')]
+                code_lines = [l.rstrip() for l in patched.split('\n')]
+                search_stripped = '\n'.join(search_lines)
+                code_stripped = '\n'.join(code_lines)
+                if search_stripped in code_stripped:
+                    code_stripped = code_stripped.replace(search_stripped, replace_text.rstrip(), 1)
+                    patched = code_stripped
+                    applied += 1
+        return patched if applied > 0 else None
+
+    def _agent_ide_patch(self, code, error_output, linter_model, gen_tokens, lang="python", system_prompt=None):
+        """Agent IDE: Attempt surgical patching of code using search/replace blocks."""
+        error_line = self._extract_error_line(error_output)
+        if error_line:
+            context = self._get_code_context_window(code, error_line, window=10)
+        else:
+            # Fallback: show first 30 numbered lines
+            lines = code.split('\n')[:30]
+            context = '\n'.join([f"    {i+1:4d} | {l}" for i, l in enumerate(lines)])
+
+        error_snippet = error_output[:600] if error_output else "No output"
+        patch_prompt = (
+            f"You are an Agent IDE. A {lang} script crashed. Fix it with a SURGICAL EDIT.\n\n"
+            f"ERROR:\n{error_snippet}\n\n"
+            f"CODE CONTEXT (around the crash):\n{context}\n\n"
+            f"Output ONLY a search-and-replace block in this EXACT format:\n"
+            f"<<<<<<< SEARCH\n[exact lines to change, copied verbatim]\n=======\n[corrected lines]\n>>>>>>> REPLACE\n\n"
+            f"Rules:\n"
+            f"1. Copy the SEARCH lines EXACTLY as they appear (including whitespace)\n"
+            f"2. Keep the fix minimal — only change what is broken\n"
+            f"3. You may output multiple blocks if needed\n"
+            f"4. Do NOT output the entire file"
+        )
+        sys = system_prompt or f"You are a strict {lang} syntax linter. Output only search-and-replace blocks."
+        patch_response = self._strip_thinking(self._call_model(linter_model, patch_prompt, min(gen_tokens, 1024), 0.1, system_prompt=sys))
+        patched_code = self._apply_search_replace_patch(code, patch_response)
+        return patched_code
 
     def _crunch_prompt(self, prompt, target_model, prompt_token_budget, status_callback=None, router_llm=None):
         """Compresses a massive prompt using semantic line boundaries and fast summarization."""
@@ -1470,19 +1561,31 @@ class AgentOrchestrator:
             is_syntax_error = any(e in output for e in ["SyntaxError", "ModuleNotFoundError", "NameError", "IndentationError", "TypeError", "AttributeError", "ValueError"])
             if is_syntax_error:
                 router_linter = self._get_model("opencode", required_ctx=8192)
-                lint_p = (
-                    "You are a fast Python Syntax Linter.\n"
-                    f"The playground verification script failed with this error:\n{output[:600]}\n\n"
-                    f"CODE:\n{test_code[:2500]}\n\n"
-                    "Identify the typo/error and rewrite the complete corrected verification script in a ```python``` block. Fix ONLY the exact error, do not change the core assertions or print('VERIFIED') statement."
-                )
-                lint_code = Sandbox.extract_code(self._strip_thinking(self._call_model(router_linter, lint_p, 1024, 0.1, system_prompt="You are a strict syntax linter. Output only code.")))
-                if lint_code and len(lint_code) > 20:
-                    linter_success, linter_output = self.sandbox.execute(lint_code, language='python')
-                    if linter_success:
-                        test_code = lint_code
-                        output = linter_output
+
+                # Step A: Try Agent IDE surgical patch first
+                patched = self._agent_ide_patch(test_code, output, router_linter, 1024)
+                if patched and patched != test_code:
+                    patch_ok, patch_out = self.sandbox.execute(patched, language='python')
+                    if patch_ok:
+                        test_code = patched
+                        output = patch_out
                         success = True
+
+                # Step B: Fall back to full rewrite if patch failed
+                if not success:
+                    lint_p = (
+                        "You are a fast Python Syntax Linter.\n"
+                        f"The playground verification script failed with this error:\n{output[:600]}\n\n"
+                        f"CODE:\n{test_code[:2500]}\n\n"
+                        "Identify the typo/error and rewrite the complete corrected verification script in a ```python``` block. Fix ONLY the exact error, do not change the core assertions or print('VERIFIED') statement."
+                    )
+                    lint_code = Sandbox.extract_code(self._strip_thinking(self._call_model(router_linter, lint_p, 1024, 0.1, system_prompt="You are a strict syntax linter. Output only code.")))
+                    if lint_code and len(lint_code) > 20:
+                        linter_success, linter_output = self.sandbox.execute(lint_code, language='python')
+                        if linter_success:
+                            test_code = lint_code
+                            output = linter_output
+                            success = True
 
         verified = success and "VERIFIED" in output
 
@@ -2190,6 +2293,15 @@ class AgentOrchestrator:
             self._call_model(coder_llm, ml_prompt, gen_tokens, gen_temp, system_prompt=ml_system_prompt)
         ))
 
+        # If OpenCode failed to generate code, escalate to DeepSeek-R1
+        if not code or len(code.strip()) < 50:
+            if status_callback:
+                status_callback("🔮 OpenCode draft empty — escalating to DeepSeek-R1...", "warning", "deepseek_r1", 30)
+            ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+            code = Sandbox.extract_code(self._strip_thinking(
+                self._call_model(ds_llm, ml_prompt, gen_tokens, gen_temp, system_prompt=ml_system_prompt)
+            ))
+
         if not code or len(code.strip()) < 50:
             return f"### Prediction Pipeline\nFailed to generate a valid ML script for: {prompt[:200]}"
 
@@ -2221,20 +2333,47 @@ class AgentOrchestrator:
                 # Check if a 3D visualization needs to be generated and appended
                 viz = self._check_3d_gate(prompt, result, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                 return f"{result}{viz}"
+
+            # If the script ran successfully but just didn't print the metrics token,
+            # treat as partial success — return whatever output we got
+            if ok and output and len(output.strip()) > 20:
+                if status_callback:
+                    status_callback("🔮 Script ran but metrics format missing — returning best-effort result.", "warning", "opencode", 80)
+                result = f"### Prediction & Forecasting Analysis\n\n{output}\n\n```python\n{code}\n```\n"
+                viz = self._check_3d_gate(prompt, result, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+                return f"{result}{viz}"
             
-            # Data cleaning loop — fix errors
+            # ── Data cleaning / error fixing loop ──
             if status_callback:
                 status_callback(f"🔮 Fixing data/script error (Round {attempt+1})...", "warning", "opencode", 50 + attempt * 15)
             
             error_details = output[:800] if output else "Script produced no output."
+
+            # Step A: Try Agent IDE surgical patch first (fast)
+            patched = self._agent_ide_patch(code, error_details, coder_llm, gen_tokens)
+            if patched and patched != code:
+                patch_ok, patch_out = self.sandbox.execute(patched, language='python')
+                if patch_ok and "PREDICTIVE_METRICS:" in patch_out:
+                    code = patched
+                    ok = True
+                    output = patch_out
+                    continue  # Will be caught by the success check at top of loop
+                elif patch_ok:
+                    code = patched
+                    ok = True
+                    output = patch_out
+                    continue
+
+            # Step B: Full rewrite fallback
             fix_prompt = (
                 f"The prediction script failed with this error:\n{error_details}\n\n"
                 f"Original code:\n{code[:2000]}\n\n"
                 f"Fix the script. Common issues:\n"
                 f"1. NaN values — use dropna() or fillna(0)\n"
-                f"2. Empty DataFrame — create synthetic sample data\n"
+                f"2. Empty DataFrame — create synthetic sample data based on the topic\n"
                 f"3. Date parsing — use pd.to_datetime(errors='coerce')\n"
                 f"4. Shape mismatch — ensure X and y have matching rows\n"
+                f"5. If web-scraped data is unavailable, generate realistic synthetic data\n"
                 f"Output ONLY the corrected script in ```python``` blocks."
             )
             code = Sandbox.extract_code(self._strip_thinking(
@@ -3113,12 +3252,41 @@ class AgentOrchestrator:
                     initial_failed_code = code
                     initial_failed_error = output
 
-                # ── Phase 4.5: OpenCode Linter Intercept (Syntax/Import Errors) ──
+                # ── Phase 4.5: Agent IDE Surgical Patch → Full Rewrite Fallback ──
                 is_syntax_error = any(e in output for e in ["SyntaxError", "ModuleNotFoundError", "NameError", "IndentationError", "TypeError", "AttributeError", "ValueError", "ReferenceError", "Error:"])
                 if is_syntax_error:
-                    if status_callback:
-                        status_callback(f"OpenCode patching {lang_name} syntax error...", "warning", "opencode", 65 + rnd*10)
                     oc_linter = self._get_model("opencode", required_ctx=oc_ctx)
+
+                    # ── Step A: Try Agent IDE surgical patch first (fast, token-efficient) ──
+                    if status_callback:
+                        status_callback(f"🔧 Agent IDE: Surgical patching {lang_name} error...", "warning", "opencode", 63 + rnd*10)
+                    patched_code = self._agent_ide_patch(code, output, oc_linter, gen_tokens, lang=req_lang)
+                    if patched_code and patched_code != code:
+                        exec_patched = patched_code
+                        if req_lang == "python" and ">>>" in prompt:
+                            exec_patched += (
+                                "\n\nif __name__ == '__main__':\n"
+                                "    import doctest\n"
+                                "    res = doctest.testmod(verbose=False)\n"
+                                "    if res.failed > 0:\n"
+                                "        raise AssertionError(f'Doctest failed: {res.failed} examples failed out of {res.attempted}')\n"
+                            )
+                        patch_ok, patch_output = self.sandbox.execute(exec_patched, language=req_lang)
+                        if patch_ok:
+                            code = patched_code
+                            output = patch_output
+                            ok = True
+                            if status_callback:
+                                status_callback("🔧 Agent IDE patch VERIFIED!", "success", "opencode", 68 + rnd*10)
+                            self.memory.save(prompt, code)
+                            if rnd > 0 or reset > 0:
+                                self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
+                            router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                            return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback, req_lang=req_lang)
+
+                    # ── Step B: Patch failed → Fall back to full rewrite linter ──
+                    if status_callback:
+                        status_callback(f"OpenCode full rewrite for {lang_name} error...", "warning", "opencode", 65 + rnd*10)
                     lint_p = (
                         f"You are a fast {lang_name} Syntax Linter.\n"
                         f"The code failed with this error:\n{output[:600]}\n\n"
