@@ -240,12 +240,16 @@ class AgentOrchestrator:
         
         # Scale context ceiling if there is plenty of system RAM (leaving 5% margin)
         ram_allowed_ceiling = base_limit
+        est_model_size = self._estimate_model_size_gb(model_key)
+        
         if ram_used_pct < 95.0:
             five_percent_ram_gb = total_ram_gb * 0.05
-            surplus_ram = free_ram_gb - five_percent_ram_gb
+            surplus_ram = free_ram_gb - est_model_size - five_percent_ram_gb
             if surplus_ram > 0:
                 ram_allowed_ceiling = int(base_limit + surplus_ram * 4000)
                 ram_allowed_ceiling = min(32768, ram_allowed_ceiling)
+            else:
+                ram_allowed_ceiling = 2048
 
         # Check GPU VRAM margins
         vram_allowed_ceiling = ram_allowed_ceiling
@@ -256,21 +260,27 @@ class AgentOrchestrator:
                 total_vram_gb = total_vram / (1024 ** 3)
                 vram_used_pct = (total_vram - free_vram) / total_vram * 100
                 
+                est_model_size = self._estimate_model_size_gb(model_key)
+                
                 # If EVM hot-swap is active, we know the orchestrator will ruthlessly flush
                 # all other models before loading this one. So we assume 95% of total VRAM
-                # will be safely available, regardless of current occupancy.
+                # will be safely available, minus the size of the incoming model.
                 if getattr(self, 'kaggle_hotswap_mode', False):
                     five_percent_vram_gb = total_vram_gb * 0.05
-                    surplus_vram = (total_vram_gb * 0.95) - five_percent_vram_gb
+                    surplus_vram = (total_vram_gb * 0.95) - est_model_size - five_percent_vram_gb
                     if surplus_vram > 0:
                         vram_allowed_ceiling = int(base_limit + surplus_vram * 8000)
                         vram_allowed_ceiling = min(32768, vram_allowed_ceiling)
+                    else:
+                        vram_allowed_ceiling = 2048 # Strongly constrained
                 elif vram_used_pct < 95.0:
                     five_percent_vram_gb = total_vram_gb * 0.05
-                    surplus_vram = free_vram_gb - five_percent_vram_gb
+                    surplus_vram = free_vram_gb - est_model_size - five_percent_vram_gb
                     if surplus_vram > 0:
                         vram_allowed_ceiling = int(base_limit + surplus_vram * 8000)
                         vram_allowed_ceiling = min(32768, vram_allowed_ceiling)
+                    else:
+                        vram_allowed_ceiling = 2048
                 
                 # GPU Architecture check: older GPUs (P100, T4, V100) lack hardware Flash Attention.
                 # Standard attention memory scales quadratically. Cap context to prevent OOM.
@@ -282,7 +292,9 @@ class AgentOrchestrator:
                         # allowing enough tokens for DeepSeek-R1 to finish long mathematical derivations.
                         vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
                 except Exception:
-                    pass
+                    # If we cannot determine SM architecture (e.g. Intel IPEX or AMD ROCm),
+                    # assume no Flash Attention and strictly cap to 8192 to prevent OOM.
+                    vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
             except Exception:
                 pass
 
