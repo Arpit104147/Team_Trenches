@@ -153,22 +153,22 @@ class AgentOrchestrator:
                 self.vram_safety_gb = round(single_gpu_vram_gb * 0.40, 1)  # 40% reserve
                 
                 # ── EVM (Enterprise VRAM Multiplexing) Hot-Swap Mode ──
-                # On GPUs with ≤24GB VRAM (P100, T4, L4), all 3 text models (~14GB total)
-                # barely fit simultaneously. Passive LRU eviction triggers too late (at 40%
-                # threshold) and risks OOM during model loads. EVM proactively flushes the
-                # least-recently-used model BEFORE loading a new one, ensuring there is always
-                # enough VRAM headroom. On larger GPUs (A100/H100), all models fit comfortably
-                # so we rely on the standard LRU pressure manager instead.
-                if single_gpu_vram_gb <= 24:
+                # EVM (Enterprise VRAM Multiplexing) Hot-Swap Mode is only needed on single low-VRAM GPUs (<= 16GB VRAM)
+                # where all models cannot fit in VRAM simultaneously. If we have multiple GPUs (dual-GPU) or >= 24GB VRAM (L4/L40S),
+                # we keep all models resident in VRAM to prevent C-level unload/reload segfaults and minimize hotswap latencies.
+                if single_gpu_vram_gb <= 16 and not self.dual_gpu_pipeline:
                     self.kaggle_hotswap_mode = True
                     # EVM guarantees proactive model flushing before every load,
                     # so we can safely use 95% of VRAM and RAM (only 5% reserve).
                     self.vram_safety_gb = round(single_gpu_vram_gb * 0.05, 1)
                     self.ram_safety_gb = round(self.total_ram_gb * 0.05, 1)
-                    print(f"⚡ EVM: Enterprise VRAM Multiplexing ACTIVE (≤24GB GPU detected)")
+                    print(f"⚡ EVM: Enterprise VRAM Multiplexing ACTIVE (≤16GB GPU and single GPU detected)")
                     print(f"⚡ EVM: 95% utilization enabled — VRAM reserve={self.vram_safety_gb:.1f} GB per GPU, RAM reserve={self.ram_safety_gb:.1f} GB")
                 else:
                     self.kaggle_hotswap_mode = False
+                    # On larger GPUs (or multi-GPU), lower the reserve threshold to 15% (instead of 40%)
+                    # to allow more models to remain loaded concurrently in VRAM.
+                    self.vram_safety_gb = round(single_gpu_vram_gb * 0.15, 1)
                 
                 if num_gpus >= 2:
                     print(f"🎮 DMA: NVIDIA GPU detected — {num_gpus}x {single_gpu_vram_gb:.0f} GB VRAM ({single_gpu_vram_gb * num_gpus:.0f} GB combined), "
@@ -311,8 +311,10 @@ class AgentOrchestrator:
                     # If we cannot determine SM architecture (e.g. Intel IPEX or AMD ROCm),
                     # assume no Flash Attention and strictly cap to 8192 to prevent OOM.
                     vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
-            except Exception:
-                pass
+            except Exception as e:
+                # Fallback to a very safe limit if GPU memory query fails to prevent context expansion crash
+                vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
+                print(f"⚠️ GPU memory query failed: {e}. Falling back to safe context limit of {vram_allowed_ceiling}")
 
         hard_limit = min(ram_allowed_ceiling, vram_allowed_ceiling)
         # Use 2048 as floor instead of 8192 — the old max(8192) was overriding
@@ -387,9 +389,10 @@ class AgentOrchestrator:
         # Per-model ceiling (all models use the same GPU-derived ceiling,
         # but individual models can be overridden here if needed)
         model_ceilings = {
-            "router": min(gpu_ctx_cap, 16384),       # Router doesn't need huge context
-            "opencode": gpu_ctx_cap,
-            "deepseek_r1": gpu_ctx_cap
+            "router": min(gpu_ctx_cap, 8192),         # Router only needs up to 8k context
+            "vibethinker": min(gpu_ctx_cap, 16384),   # VibeThinker only needs up to 16k context
+            "opencode": min(gpu_ctx_cap, 16384),      # OpenCodeInterpreter capped at 16k
+            "deepseek_r1": gpu_ctx_cap                # DeepSeek-R1 uses full capacity (up to 32k)
         }
         model_cap = model_ceilings.get(model_key, gpu_ctx_cap)
         dynamic_cap = min(dynamic_cap, model_cap)
