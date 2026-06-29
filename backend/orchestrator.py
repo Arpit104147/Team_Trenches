@@ -2627,8 +2627,8 @@ class AgentOrchestrator:
                     # Derive char_limit from the ACTUAL context ceiling rather than raw VRAM/RAM.
                     # This prevents scraping 60k chars of content when the model context is only 8k tokens.
                     # Formula: (context_ceiling × 0.60 prompt share × 3 chars/token) / max_scraped pages
-                    max_results = 5
-                    max_scraped = 5
+                    max_results = 8
+                    max_scraped = 8
                     usable_prompt_tokens = int(ds_ctx_est * 0.60)
                     char_limit = max(1500, (usable_prompt_tokens * 3) // max_scraped)
                     # Cap at sensible maximum — even with 32k context, no single page needs > 8000 chars
@@ -2769,15 +2769,13 @@ class AgentOrchestrator:
             else:
                 # In standard shared-VRAM mode, keep context sizes tight to prevent OOM conflicts.
                 router_ctx = min(router_ctx_cap, est_tokens + self.max_tokens)
-                ds_ctx = min(ds_ctx_cap, est_tokens + 8192)
+                ds_ctx = min(ds_ctx_cap, est_tokens + 16384)
                 oc_ctx = min(oc_ctx_cap, self.max_auto_ctx)
         else:
-            # Smart context compression for benchmark tasks:
-            # HumanEval/MBPP queries are tiny. Allocating 8192 tokens of KV cache wastes VRAM.
-            # Scale down to strictly what is needed: est_tokens + system_prompt + max_generation
-            router_ctx = max(1024, min(self.context_length, router_ctx_cap, est_tokens + 1024))
-            ds_ctx = max(2048, min(self.context_length, ds_ctx_cap, est_tokens + 4096))
-            oc_ctx = max(2048, min(self.context_length, oc_ctx_cap, est_tokens + 4096))
+            # We compress context sizes for benchmarking but ensure ample space for reasoning & coding correction loops
+            router_ctx = max(1024, min(self.context_length, router_ctx_cap, est_tokens + 2048))
+            ds_ctx = max(4096, min(self.context_length, ds_ctx_cap, est_tokens + 16384))
+            oc_ctx = max(4096, min(self.context_length, oc_ctx_cap, est_tokens + 8192))
             
         # Ensure context sizing prints to log for easier transparency
         if getattr(self, 'kaggle_hotswap_mode', False):
@@ -3082,8 +3080,7 @@ class AgentOrchestrator:
             "CRITICAL TIME LIMIT: If integrating high-frequency oscillatory motion (e.g. cyclotron orbits, molecular vibrations), "
             "calculate the period FIRST. NEVER integrate for millions of cycles. Cap the simulation time so it covers at most 50-100 cycles to prevent solver timeouts.\n"
             "5. Conservation Laws: Explicitly state which conserved quantities (energy, momentum) should be verified.\n"
-            "6. OUTPUT FORMAT: Write a numbered list of steps. Each step must state WHAT to compute, "
-            "the EXACT formula, and the expected data structure.\n"
+            "6. OUTPUT FORMAT: Write a numbered list of steps. For scientific/mathematical tasks, each step must state WHAT to compute, the EXACT formula, and the expected data structure. For general coding, debugging, or algorithmic tasks, list the logical steps, functions, and control flow changes needed.\n"
             "7. Think step by step. If you are unsure about any formula, derive it from first principles or explicitly state you need a web search check.\n"
             "8. IMPORTANT: If 'Relevant past experience' is provided, prioritize the User Query's exact parameters over the past experience if they differ.\n"
             "9. THINKING CONSTRAINT: Keep your reasoning brief and focused. Proceed to planning quickly.\n"
@@ -3663,29 +3660,8 @@ class AgentOrchestrator:
                         if status_callback:
                             status_callback("Reasoning VERIFIED!", "success", model_key, 80)
                         
-                        # Hybrid synthesis stage: If VibeThinker verified the math, let DeepSeek-R1 write the final detailed LaTeX explanation
-                        if model_key == "vibethinker":
-                            if status_callback:
-                                status_callback("DeepSeek-R1 synthesizing detailed explanation...", "info", "deepseek_r1", 85)
-                            ds_r1 = self._get_model("deepseek_r1", required_ctx=ds_ctx)
-                            synthesis_prompt = (
-                                f"USER REQUEST:\n{prompt}\n\n"
-                                f"VERIFIED MATHEMATICAL SOLUTION ROOT:\n{ds_answer}\n\n"
-                                f"SANDBOX RUN LOGS:\n{pg_out}\n\n"
-                                "You are a master academic editor and scientific writer.\n"
-                                "Using the verified mathematical solution above as the absolute ground truth, "
-                                "write an exhaustive, detailed, academic-grade explanation/derivation.\n"
-                                "Ensure you follow all rules:\n"
-                                "- Wrap all of your internal reasoning/drafting steps inside <think>...</think> tags. After closing the </think> tag, output the final polished, beautifully formatted response.\n"
-                                "- Write all math in LaTeX ($...$ for inline, $$...$$ for display equations).\n"
-                                "- State all assumptions explicitly at the beginning.\n"
-                                "- Define all variables with their units before using them.\n"
-                                "- Verify dimensional consistency of every equation.\n"
-                                "- Do NOT copy any placeholder/dummy variables. Output a fully complete, professional solution."
-                            )
-                            final_answer = self._strip_thinking(self._call_model(ds_r1, synthesis_prompt, gen_tokens, gen_temp, system_prompt=reasoning_sys))
-                        else:
-                            final_answer = ds_answer
+                        # Hybrid synthesis stage: Write the final detailed LaTeX explanation using DeepSeek-R1
+                        final_answer = self._synthesize_reasoning_explanation(prompt, ds_answer, pg_out, ds_ctx, gen_tokens, gen_temp, status_callback, reasoning_sys)
 
                         self.memory.save(prompt, final_answer)
                         router_llm = None; ds_llm = None; gc.collect()
@@ -3734,11 +3710,12 @@ class AgentOrchestrator:
                     if v2:
                         if status_callback:
                             status_callback("DeepSeek-R1's correction VERIFIED!", "success", "deepseek_r1", 80)
-                        self.memory.save(prompt, vibe_answer)
-                        self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
+                        final_answer = self._synthesize_reasoning_explanation(prompt, vibe_answer, vibe_pg_out, ds_ctx, gen_tokens, gen_temp, status_callback, reasoning_sys)
+                        self.memory.save(prompt, final_answer)
+                        self.memory.save_mistake(prompt, ds_answer, pg_out, final_answer)
                         router_llm = None; ds_llm = None; gc.collect()
-                        viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        return f"## Verified Answer\n{vibe_answer}{viz}"
+                        viz = self._check_3d_gate(prompt, final_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+                        return f"## Verified Answer\n{final_answer}{viz}"
                     # Don't let ds_safe grow unboundedly — cap the appended errors
                     error_summary = pg_out[:300]
                     if len(ds_safe) + len(error_summary) < (ds_ctx - gen_tokens - 200) * 3:
@@ -3801,11 +3778,12 @@ class AgentOrchestrator:
                     if v2:
                         if status_callback:
                             status_callback("Emergency Search Healing SUCCESSFUL!", "success", "deepseek_r1", 100)
-                        self.memory.save(prompt, vibe_answer)
-                        self.memory.save_mistake(prompt, ds_answer, pg_out, vibe_answer)
+                        final_answer = self._synthesize_reasoning_explanation(prompt, vibe_answer, vibe_pg_out, ds_ctx, gen_tokens, gen_temp, status_callback, reasoning_sys)
+                        self.memory.save(prompt, final_answer)
+                        self.memory.save_mistake(prompt, ds_answer, pg_out, final_answer)
                         router_llm = None; ds_llm = None; gc.collect()
-                        viz = self._check_3d_gate(prompt, vibe_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
-                        return f"## Verified Answer\n{vibe_answer}{viz}"
+                        viz = self._check_3d_gate(prompt, final_answer, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+                        return f"## Verified Answer\n{final_answer}{viz}"
             except Exception as es:
                 print(f"Emergency reasoning search recovery failed: {es}")
 
@@ -3843,4 +3821,26 @@ class AgentOrchestrator:
             if status_callback:
                 status_callback("Done!", "success", "router", 100)
             return f"## Successfully Generated Answer\n{compiled}{viz}"
+
+    def _synthesize_reasoning_explanation(self, prompt, verified_solution, pg_out, ds_ctx, gen_tokens, gen_temp, status_callback, reasoning_sys):
+        """Use DeepSeek-R1 to synthesize a detailed, academic-grade explanation/derivation based on the verified solution."""
+        if status_callback:
+            status_callback("DeepSeek-R1 synthesizing detailed explanation...", "info", "deepseek_r1", 85)
+        ds_r1 = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+        synthesis_prompt = (
+            f"USER REQUEST:\n{prompt}\n\n"
+            f"VERIFIED MATHEMATICAL SOLUTION ROOT:\n{verified_solution}\n\n"
+            f"SANDBOX RUN LOGS:\n{pg_out}\n\n"
+            "You are a master academic editor and scientific writer.\n"
+            "Using the verified mathematical solution above as the absolute ground truth, "
+            "write an exhaustive, detailed, academic-grade explanation/derivation.\n"
+            "Ensure you follow all rules:\n"
+            "- Wrap all of your internal reasoning/drafting steps inside <think>...</think> tags. After closing the </think> tag, output the final polished, beautifully formatted response.\n"
+            "- Write all math in LaTeX ($...$ for inline, $$...$$ for display equations).\n"
+            "- State all assumptions explicitly at the beginning.\n"
+            "- Define all variables with their units before using them.\n"
+            "- Verify dimensional consistency of every equation.\n"
+            "- Do NOT copy any placeholder/dummy variables. Output a fully complete, professional solution."
+        )
+        return self._strip_thinking(self._call_model(ds_r1, synthesis_prompt, gen_tokens, gen_temp, system_prompt=reasoning_sys))
 
