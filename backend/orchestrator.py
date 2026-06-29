@@ -564,6 +564,10 @@ class AgentOrchestrator:
         if required_ctx is None:
             required_ctx = self.context_length if self.context_length > 0 else 8192
 
+        # Force utility models to CPU on limited VRAM systems to prevent memory fragmentation and swapping
+        if getattr(self, 'kaggle_hotswap_mode', False) and model_key in ["router", "vibethinker"]:
+            force_cpu = True
+
         # CRITICAL SEGFAULT PREVENTION: llama.cpp has a known C-level double-free segfault
         # when a GGUF model is closed and re-initialized in the same process to expand context.
         # To completely prevent this, we enforce that on GPUs, the model is ALWAYS loaded with
@@ -3573,7 +3577,7 @@ class AgentOrchestrator:
             mode = "Playground-Verified" if use_playground else "Theoretical Analysis"
             status_callback(f"Reasoning mode: {mode}", "info", "router", 15)
 
-        ds_llm = self._get_model("vibethinker", required_ctx=ds_ctx)
+        ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
 
         reasoning_sys = (
             "You are a rigorous scientific researcher, expert academic author, and master logic reasoner.\n\n"
@@ -3624,9 +3628,8 @@ class AgentOrchestrator:
                 helper_search_context = ""
                 for rnd in range(max_rounds):
                     # Re-acquire ds_llm because other models may have evicted it in the previous round
-                    is_nuclear = (reset > 0)
-                    model_key = "deepseek_r1" if is_nuclear else "vibethinker"
-                    model_name = "DeepSeek-R1" if is_nuclear else "VibeThinker"
+                    model_key = "deepseek_r1"
+                    model_name = "DeepSeek-R1"
                     
                     ds_llm = self._get_model(model_key, required_ctx=ds_ctx)
                     if status_callback:
@@ -3805,7 +3808,7 @@ class AgentOrchestrator:
         else:
             # ── Standard LLM Debate (non-testable reasoning) ─────────────
             if status_callback:
-                status_callback("VibeThinker drafting analysis...", "info", "vibethinker", 50)
+                status_callback("DeepSeek-R1 drafting analysis...", "info", "deepseek_r1", 50)
             ds_draft = self._strip_thinking(self._call_model(ds_llm, f"Provide a detailed answer:\n{ds_safe}", gen_tokens, gen_temp, system_prompt=reasoning_sys))
 
             compiled = ds_draft
