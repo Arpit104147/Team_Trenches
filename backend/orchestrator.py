@@ -3295,28 +3295,35 @@ class AgentOrchestrator:
                     
                     # Fetch quick helper web search context
                     helper_search_context = ""
-                    if self.search_mode != "off":
+                    current_search_mode = str(getattr(self, 'search_mode', 'off')).strip().lower()
+                    if is_nuclear and current_search_mode not in ["off", "false", "none", ""]:
                         try:
-                            router_llm = self._get_model("router", required_ctx=1024)
+                            search_llm = self._get_model("deepseek_r1", required_ctx=2048)
                             search_opt_p = (
-                                "Generate a highly specific search query (3-6 words) to find the correct scientific formula, "
-                                "biological facts, chemical properties, or Python coding syntax to resolve this sandbox verification failure.\n\n"
+                                "Generate a highly specific search query (3-6 words) to find coding solutions, GitHub issues, or StackOverflow answers to resolve this verification failure.\n\n"
                                 f"Original Prompt: {prompt}\n"
                                 f"Sandbox Failure Output: {pg_out[:500]}\n"
-                                "Constraint: The search query must be strictly relevant to Python code, mathematics, or the science domain of the prompt. Do NOT search for JavaScript.\n"
+                                "Constraint: The query must search for coding websites for solutions.\n"
                                 "Output ONLY the search query."
                             )
-                            search_term = self._call_model(router_llm, search_opt_p, max_tokens=30, temperature=0.1).strip()
-                            search_term = search_term.replace('"', '').replace('`', '').strip()
+                            search_term = self._call_model(search_llm, search_opt_p, max_tokens=30, temperature=0.1).strip()
+                            search_term = self._strip_thinking(search_term).replace('"', '').replace('`', '').strip()
                             if not search_term or len(search_term) < 5:
-                                search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                                search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10]) + " code solution"
                             
                             if status_callback:
-                                status_callback(f"Emergency Search: '{search_term}'...", "info", "router", 36 + rnd*10)
+                                status_callback(f"Emergency Coding Search: '{search_term}'...", "info", "deepseek_r1", 36 + rnd*10)
                             
                             web_res = self.web_search.search(search_term, max_results=3)
                             if web_res:
-                                helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                                scraped_texts = []
+                                for idx, r in enumerate(web_res):
+                                    if status_callback:
+                                        status_callback(f"Deep scraping ({idx+1}/3): {r.get('link')[:40]}...", "info", "deepseek_r1", 37 + rnd*10)
+                                    scraped = self.web_search.scrape_url(r.get('link'))
+                                    if scraped:
+                                        scraped_texts.append(f"Title: {r.get('title')}\nContent: {scraped[:2000]}")
+                                helper_search_context = "\n\n".join(scraped_texts)
                         except Exception:
                             pass
 
@@ -3455,12 +3462,35 @@ class AgentOrchestrator:
                 if not ok:
                     # Fetch quick helper web search context
                     helper_search_context = ""
-                    if self.search_mode != "off":
+                    current_search_mode = str(getattr(self, 'search_mode', 'off')).strip().lower()
+                    if is_nuclear and current_search_mode not in ["off", "false", "none", ""]:
                         try:
-                            search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                            search_llm = self._get_model("deepseek_r1", required_ctx=2048)
+                            search_opt_p = (
+                                "Generate a highly specific search query (3-6 words) to find coding solutions, GitHub issues, or StackOverflow answers to resolve this verification failure.\n\n"
+                                f"Original Prompt: {prompt}\n"
+                                f"Sandbox Failure Output: {output[:500]}\n"
+                                "Constraint: The query must search for coding websites for solutions.\n"
+                                "Output ONLY the search query."
+                            )
+                            search_term = self._call_model(search_llm, search_opt_p, max_tokens=30, temperature=0.1).strip()
+                            search_term = self._strip_thinking(search_term).replace('"', '').replace('`', '').strip()
+                            if not search_term or len(search_term) < 5:
+                                search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10]) + " code solution"
+                            
+                            if status_callback:
+                                status_callback(f"Emergency Coding Search: '{search_term}'...", "info", "deepseek_r1", 71 + rnd*10)
+                                
                             web_res = self.web_search.search(search_term, max_results=3)
                             if web_res:
-                                helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                                scraped_texts = []
+                                for idx, r in enumerate(web_res):
+                                    if status_callback:
+                                        status_callback(f"Deep scraping ({idx+1}/3): {r.get('link')[:40]}...", "info", "deepseek_r1", 72 + rnd*10)
+                                    scraped = self.web_search.scrape_url(r.get('link'))
+                                    if scraped:
+                                        scraped_texts.append(f"Title: {r.get('title')}\nContent: {scraped[:2000]}")
+                                helper_search_context = "\n\n".join(scraped_texts)
                         except Exception:
                             pass
                     search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
@@ -3747,27 +3777,35 @@ class AgentOrchestrator:
                     # Fetch quick helper web search context to resolve unknown concepts immediately
                     helper_search_context = ""
                     current_search_mode = str(getattr(self, 'search_mode', 'off')).strip().lower()
-                    if current_search_mode not in ["off", "false", "none", ""]:
+                    if is_nuclear and current_search_mode not in ["off", "false", "none", ""]:
                         try:
-                            router_llm = self._get_model("router", required_ctx=1024)
+                            search_llm = self._get_model("deepseek_r1", required_ctx=2048)
                             search_opt_p = (
                                 "Generate a highly specific search query (3-6 words) to find the correct scientific formula, "
                                 "biological facts, or chemical properties to resolve this sandbox verification failure.\n\n"
                                 f"Original Prompt: {prompt}\n"
                                 f"Sandbox Failure Output: {pg_out[:500]}\n"
+                                "Constraint: The query must search for websites that provide the best physics/math/logic reasoning solutions.\n"
                                 "Output ONLY the search query."
                             )
-                            search_term = self._call_model(router_llm, search_opt_p, max_tokens=30, temperature=0.1).strip()
-                            search_term = search_term.replace('"', '').replace('`', '').strip()
+                            search_term = self._call_model(search_llm, search_opt_p, max_tokens=30, temperature=0.1).strip()
+                            search_term = self._strip_thinking(search_term).replace('"', '').replace('`', '').strip()
                             if not search_term or len(search_term) < 5:
-                                search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10])
+                                search_term = " ".join([word for word in prompt.split() if (len(word) > 3 and word.isalnum())][:10]) + " reasoning solution"
                             
                             if status_callback:
-                                status_callback(f"Emergency Search: '{search_term}'...", "info", "router", 36 + rnd*12)
+                                status_callback(f"Emergency Reasoning Search: '{search_term}'...", "info", "deepseek_r1", 36 + rnd*12)
                             
                             web_res = self.web_search.search(search_term, max_results=3)
                             if web_res:
-                                helper_search_context = "\n".join([f"- {r.get('title')}: {r.get('snippet', '')}" for r in web_res])
+                                scraped_texts = []
+                                for idx, r in enumerate(web_res):
+                                    if status_callback:
+                                        status_callback(f"Deep scraping ({idx+1}/3): {r.get('link')[:40]}...", "info", "deepseek_r1", 37 + rnd*12)
+                                    scraped = self.web_search.scrape_url(r.get('link'))
+                                    if scraped:
+                                        scraped_texts.append(f"Title: {r.get('title')}\nContent: {scraped[:2000]}")
+                                helper_search_context = "\n\n".join(scraped_texts)
                         except Exception:
                             pass
                     search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
