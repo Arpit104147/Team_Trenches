@@ -39,6 +39,9 @@ app.add_middleware(
 os.makedirs("outputs", exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 
+os.makedirs("workspaces", exist_ok=True)
+app.mount("/workspaces", StaticFiles(directory="workspaces"), name="workspaces")
+
 # Cancellation flag — set when user clicks Cancel to stop generation (models stay loaded)
 generation_cancel = threading.Event()
 

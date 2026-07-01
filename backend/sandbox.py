@@ -804,6 +804,165 @@ class Sandbox:
                 os.unlink(path)
 
     @staticmethod
+    def parse_multi_file_manifest(text):
+        """
+        Parses XML-like tags <file path="path/to/file">content</file> from text.
+        Also parses JSON manifest from markdown blocks if present.
+        Returns a dictionary of {relative_path: content}.
+        """
+        files = {}
+        # 1. XML tag parsing
+        pattern = r'<file\s+path=["\']([^"\']+)["\']\s*>(.*?)</file>'
+        matches = re.finditer(pattern, text, re.DOTALL | re.IGNORECASE)
+        for match in matches:
+            path = match.group(1).strip()
+            content = match.group(2)
+            if content.startswith('\n'):
+                content = content[1:]
+            if content.endswith('\n'):
+                content = content[:-1]
+            files[path] = content
+            
+        # 2. JSON parsing fallback if no XML tags found
+        if not files and "package.json" in text:
+            # Try to find a JSON block containing files list
+            json_pattern = r'```json\s*(\[\s*\{\s*"path".*?\])\s*```'
+            json_match = re.search(json_pattern, text, re.DOTALL | re.IGNORECASE)
+            if json_match:
+                try:
+                    file_list = json.loads(json_match.group(1))
+                    for entry in file_list:
+                        if isinstance(entry, dict) and "path" in entry and "content" in entry:
+                            files[entry["path"].strip()] = entry["content"]
+                except Exception:
+                    pass
+        return files
+
+    def execute_workspace(self, files_dict, run_cmd=None, timeout=120):
+        """
+        Executes a full workspace-level project directory.
+        Writes all files, installs dependencies (like npm install),
+        runs validation (like npm run build), and returns (success, logs, temp_dir_path).
+        """
+        import tempfile
+        import shutil
+        import json
+
+        temp_dir = tempfile.mkdtemp(prefix="workspace_sandbox_")
+        output_log = []
+        success = True
+
+        try:
+            # 1. Write all files to the temporary directory
+            for rel_path, content in files_dict.items():
+                dest_path = os.path.abspath(os.path.join(temp_dir, rel_path))
+                # Prevent path traversal attacks escaping the temp dir
+                if not dest_path.startswith(os.path.abspath(temp_dir)):
+                    continue
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                with open(dest_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
+            output_log.append(f"📁 Created workspace with {len(files_dict)} files.")
+
+            # 2. Node.js project handling (npm install)
+            if 'package.json' in files_dict:
+                output_log.append("📦 package.json detected. Installing dependencies via npm...")
+                try:
+                    # Run npm install without audit warnings or fund prints to keep stdout clean
+                    install_res = subprocess.run(
+                        ['npm', 'install', '--no-audit', '--no-fund', '--prefer-offline'],
+                        cwd=temp_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=90
+                    )
+                    if install_res.stdout:
+                        output_log.append(install_res.stdout)
+                    if install_res.stderr:
+                        output_log.append(f"Npm stderr:\n{install_res.stderr}")
+                    if install_res.returncode != 0:
+                        success = False
+                        output_log.append("❌ npm install failed.")
+                        return False, "\n".join(output_log), temp_dir
+                except subprocess.TimeoutExpired:
+                    success = False
+                    output_log.append("❌ npm install timed out after 90s.")
+                    return False, "\n".join(output_log), temp_dir
+                except Exception as e:
+                    success = False
+                    output_log.append(f"❌ npm install execution failed: {str(e)}")
+                    return False, "\n".join(output_log), temp_dir
+
+                # 3. Detect verification/build script from package.json if not provided
+                if not run_cmd:
+                    try:
+                        with open(os.path.join(temp_dir, 'package.json'), 'r') as f:
+                            pkg = json.loads(f.read())
+                        scripts = pkg.get('scripts', {})
+                        if 'build' in scripts:
+                            run_cmd = 'npm run build'
+                        elif 'test' in scripts:
+                            run_cmd = 'npm run test'
+                        else:
+                            run_cmd = 'node index.js' if 'index.js' in files_dict else None
+                    except Exception:
+                        run_cmd = None
+
+            # 4. Python project handling (requirements.txt install)
+            elif 'requirements.txt' in files_dict:
+                output_log.append("🐍 requirements.txt detected. Installing packages...")
+                try:
+                    install_res = subprocess.run(
+                        [sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--quiet'],
+                        cwd=temp_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=90
+                    )
+                    if install_res.stdout:
+                        output_log.append(install_res.stdout)
+                    if install_res.stderr:
+                        output_log.append(f"Pip stderr:\n{install_res.stderr}")
+                except Exception as e:
+                    output_log.append(f"⚠️ pip install failed: {str(e)}")
+
+            # 5. Run validation script
+            if run_cmd:
+                output_log.append(f"🚀 Running workspace execution: `{run_cmd}`")
+                try:
+                    cmd_args = run_cmd.split()
+                    run_res = subprocess.run(
+                        cmd_args,
+                        cwd=temp_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout
+                    )
+                    if run_res.stdout:
+                        output_log.append(run_res.stdout)
+                    if run_res.stderr:
+                        output_log.append(f"Stderr:\n{run_res.stderr}")
+                    if run_res.returncode != 0:
+                        success = False
+                        output_log.append(f"❌ Command `{run_cmd}` failed with exit code {run_res.returncode}")
+                    else:
+                        output_log.append(f"✅ Command `{run_cmd}` completed successfully.")
+                except subprocess.TimeoutExpired:
+                    success = False
+                    output_log.append(f"❌ Command `{run_cmd}` timed out after {timeout}s.")
+                except Exception as e:
+                    success = False
+                    output_log.append(f"❌ Execution failed: {str(e)}")
+            else:
+                output_log.append("ℹ️ No execution command specified. Files written and structured successfully.")
+
+            return success, "\n".join(output_log), temp_dir
+
+        except Exception as e:
+            return False, f"Workspace sandbox error: {str(e)}", temp_dir
+
+    @staticmethod
     def extract_code(text):
         """
         Extract code from markdown code blocks in LLM responses.

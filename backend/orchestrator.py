@@ -3,7 +3,26 @@ import gc
 import re
 import json
 import time
-import psutil
+try:
+    import psutil
+except ImportError:
+    class MockVirtualMemory:
+        def __init__(self):
+            self.total = 16 * (1024 ** 3)
+            self.available = 8 * (1024 ** 3)
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    for line in f:
+                        if line.startswith('MemTotal:'):
+                            self.total = int(line.split()[1]) * 1024
+                        elif line.startswith('MemAvailable:'):
+                            self.available = int(line.split()[1]) * 1024
+            except Exception:
+                pass
+    class MockPsutil:
+        def virtual_memory(self):
+            return MockVirtualMemory()
+    psutil = MockPsutil()
 import threading
 from backend.downloader import get_model_path, is_model_downloaded
 from backend.sandbox import Sandbox
@@ -3100,7 +3119,14 @@ class AgentOrchestrator:
         # Determine language constraints
         prompt_lower = prompt.lower()
         req_lang = "python"
-        if "javascript" in prompt_lower or " js " in prompt_lower or "node.js" in prompt_lower or "nodejs" in prompt_lower or "node js" in prompt_lower or "node-js" in prompt_lower:
+        
+        # Check if it is a web application / site request
+        web_design_indicators = ["web design", "website", "html", "css", "js", "react", "ui", "ux", "glassmorphism", "design", "page", "app", "frontend", "dashboard"]
+        is_web_design = any(kw in prompt_lower for kw in web_design_indicators)
+        
+        if "html" in prompt_lower or "web app" in prompt_lower or "website" in prompt_lower or "react" in prompt_lower or "vue" in prompt_lower or "next.js" in prompt_lower or "css" in prompt_lower or "front-end" in prompt_lower or "frontend" in prompt_lower:
+            req_lang = "html"
+        elif "javascript" in prompt_lower or " js " in prompt_lower or "node.js" in prompt_lower or "nodejs" in prompt_lower or "node js" in prompt_lower or "node-js" in prompt_lower:
             req_lang = "javascript"
         elif "typescript" in prompt_lower or " ts " in prompt_lower:
             req_lang = "typescript"
@@ -3121,6 +3147,7 @@ class AgentOrchestrator:
             "python": "Python",
             "javascript": "JavaScript",
             "typescript": "TypeScript",
+            "html": "HTML/Web App",
             "cpp": "C++",
             "c": "C",
             "bash": "Bash",
@@ -3246,9 +3273,20 @@ class AgentOrchestrator:
             "fig.update_layout(template='plotly_dark', margin=dict(l=0, r=0, b=0, t=40))\n"
             "# 4. Outputs: ALWAYS print JSON to stdout so the UI can render, AND call fig.show() so it runs locally:\n"
             "print(fig.to_json())\n"
-            "fig.show()\n"
             "============================="
         )
+
+        if is_web_design or req_lang == "html":
+            coder_sys += (
+                "\n\n=== WEB APP DESIGN & AESTHETICS RULES ===\n"
+                "You MUST construct a modern, premium user interface with outstanding design aesthetics:\n"
+                "1. Color Palette: Use a curated color scheme (dark mode, neon, slate, teal). No basic plain colors.\n"
+                "2. Typography: Import and use professional fonts (Inter, Outfit, etc.) from Google Fonts.\n"
+                "3. Style & Depth: Implement modern layout effects like glassmorphism (semi-transparent blur backgrounds), smooth gradients, and box shadows.\n"
+                "4. Spacing: Use responsive layouts (CSS Flexbox/Grid) with proper spacing and paddings.\n"
+                "5. Animations: Add transitions and micro-hover animations to all buttons and links.\n"
+                "6. Completeness: Ensure all buttons, forms, and features have active logic, not placeholders."
+            )
 
         # ── Execution Loop ──────────────────────────────────────────────────
         initial_failed_code = ""
@@ -3358,6 +3396,22 @@ class AgentOrchestrator:
                 if req_lang == "python":
                     code_p = f"Write a complete Python script for this plan:\n{plan_for_code}\n\nWrap in ```python```."
                     sys_prompt = coder_sys
+                elif req_lang == "html":
+                    code_p = (
+                        f"Implement a complete, highly premium web application or site for this plan:\n{plan_for_code}\n\n"
+                        "To write multiple files (e.g. index.html, styles.css, app.js, package.json), "
+                        "wrap each file's content in a <file path=\"relative/path/to/file\"> tag. E.g.:\n"
+                        "<file path=\"package.json\">\n{\n  \"name\": \"app\",\n  \"scripts\": {\"build\": \"vite build\"}\n}\n</file>\n"
+                        "<file path=\"index.html\">\n...\n</file>\n"
+                        "Ensure all resources and styles are modern and visually stunning. Do not use placeholders or abbreviations."
+                    )
+                    sys_prompt = (
+                        "You are an expert full-stack web developer and UI designer.\n"
+                        "You must write complete, production-grade web apps with multiple files.\n"
+                        "Wrap each file in a <file path=\"...\">...</file> block.\n"
+                        "Do not include placeholders, TODOs, or abbreviations.\n"
+                        "Ensure styling uses modern glassmorphism, Google Fonts, hover effects, and CSS flex/grid spacing."
+                    )
                 else:
                     code_p = f"Write a complete, self-contained {lang_name} script for this plan:\n{plan_for_code}\n\nWrap in ```{req_lang}```."
                     sys_prompt = f"You are a master {lang_name} programmer. Output only code inside ```{req_lang}``` blocks."
@@ -3368,23 +3422,80 @@ class AgentOrchestrator:
                 if status_callback:
                     status_callback(f"Executing in Sandbox (Attempt {rnd+1}/{max_rounds})...", "info", "sandbox", 60 + rnd*10)
                 
-                # Active Doctest-Driven Self-Correction:
-                exec_code = code
-                if req_lang == "python" and ">>>" in prompt:
-                    exec_code += (
-                        "\n\nif __name__ == '__main__':\n"
-                        "    import doctest\n"
-                        "    res = doctest.testmod(verbose=False)\n"
-                        "    if res.failed > 0:\n"
-                        "        raise AssertionError(f'Doctest failed: {res.failed} examples failed out of {res.attempted}')\n"
-                    )
-                ok, output = self.sandbox.execute(exec_code, language=req_lang)
-                if ok:
-                    self.memory.save(prompt, code)
-                    if rnd > 0 or reset > 0:
-                        self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
-                    router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
-                    return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback, req_lang=req_lang)
+                # Check for workspace multi-file manifest
+                files_dict = Sandbox.parse_multi_file_manifest(code)
+                if files_dict:
+                    ok, output_log, temp_dir = self.sandbox.execute_workspace(files_dict)
+                    output = output_log
+                    if ok:
+                        import uuid
+                        import shutil
+                        session_id = f"session_{uuid.uuid4().hex[:8]}"
+                        target_workspace_dir = os.path.join("workspaces", session_id)
+                        os.makedirs(target_workspace_dir, exist_ok=True)
+                        shutil.copytree(temp_dir, target_workspace_dir, dirs_exist_ok=True)
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        
+                        entry_rel = ""
+                        if os.path.exists(os.path.join(target_workspace_dir, "dist", "index.html")):
+                            entry_rel = "dist/index.html"
+                        elif os.path.exists(os.path.join(target_workspace_dir, "index.html")):
+                            entry_rel = "index.html"
+                        else:
+                            for root, _, files in os.walk(target_workspace_dir):
+                                for f in files:
+                                    if f.endswith(".html"):
+                                        entry_rel = os.path.relpath(os.path.join(root, f), target_workspace_dir)
+                                        break
+                                if entry_rel:
+                                    break
+                                    
+                        iframe_url = f"/workspaces/{session_id}/{entry_rel}" if entry_rel else f"/workspaces/{session_id}/"
+                        wrapper_html = (
+                            "<!--ARTIFACT_HTML-->\n"
+                            "<!DOCTYPE html>\n"
+                            "<html>\n"
+                            "<head>\n"
+                            "  <style>\n"
+                            "    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #0d0d0d; }\n"
+                            "    iframe { width: 100%; height: 100%; border: none; }\n"
+                            "  </style>\n"
+                            "</head>\n"
+                            "<body>\n"
+                            f"  <iframe src=\"{iframe_url}\"></iframe>\n"
+                            "</body>\n"
+                            "</html>\n"
+                            "<!--/ARTIFACT_HTML-->"
+                        )
+                        self.memory.save(prompt, code)
+                        if rnd > 0 or reset > 0:
+                            self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        
+                        files_listing = "\n".join([f"- `{p}` ({len(c)} chars)" for p, c in files_dict.items()])
+                        return (
+                            f"### 📂 Multi-File Workspace Generated successfully!\n\n"
+                            f"Created files:\n{files_listing}\n\n"
+                            f"Below is the live simulation of the application:\n\n{wrapper_html}"
+                        )
+                else:
+                    # Active Doctest-Driven Self-Correction:
+                    exec_code = code
+                    if req_lang == "python" and ">>>" in prompt:
+                        exec_code += (
+                            "\n\nif __name__ == '__main__':\n"
+                            "    import doctest\n"
+                            "    res = doctest.testmod(verbose=False)\n"
+                            "    if res.failed > 0:\n"
+                            "        raise AssertionError(f'Doctest failed: {res.failed} examples failed out of {res.attempted}')\n"
+                        )
+                    ok, output = self.sandbox.execute(exec_code, language=req_lang)
+                    if ok:
+                        self.memory.save(prompt, code)
+                        if rnd > 0 or reset > 0:
+                            self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
+                        router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
+                        return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback, req_lang=req_lang)
 
                 # Save initial failures to register mistake later
                 if not initial_failed_code:
