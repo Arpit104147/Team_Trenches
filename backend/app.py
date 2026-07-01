@@ -11,7 +11,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import threading
 import json
 import asyncio
-import psutil
+try:
+    import psutil
+except ImportError:
+    class _MockVM:
+        def __init__(self):
+            self.total = 16 * (1024 ** 3)
+            self.available = 8 * (1024 ** 3)
+            self.used = 8 * (1024 ** 3)
+            self.percent = 50.0
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    for line in f:
+                        if line.startswith('MemTotal:'):
+                            self.total = int(line.split()[1]) * 1024
+                        elif line.startswith('MemAvailable:'):
+                            self.available = int(line.split()[1]) * 1024
+                self.used = self.total - self.available
+                self.percent = round((self.used / self.total) * 100, 1) if self.total else 50.0
+            except Exception:
+                pass
+    class _MockPsutil:
+        def virtual_memory(self):
+            return _MockVM()
+        def cpu_percent(self):
+            return 0.0
+    psutil = _MockPsutil()
 import time
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware

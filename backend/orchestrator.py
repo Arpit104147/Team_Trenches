@@ -3273,6 +3273,7 @@ class AgentOrchestrator:
             "fig.update_layout(template='plotly_dark', margin=dict(l=0, r=0, b=0, t=40))\n"
             "# 4. Outputs: ALWAYS print JSON to stdout so the UI can render, AND call fig.show() so it runs locally:\n"
             "print(fig.to_json())\n"
+            "fig.show()\n"
             "============================="
         )
 
@@ -3385,6 +3386,17 @@ class AgentOrchestrator:
 
                 compiled_plan = ds_draft
 
+                # ── Phase 2.5: Inject AST Repo Map context (if available) ────
+                repo_map_context = ""
+                try:
+                    from backend.repo_map import RepoMapGenerator
+                    workspace_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    repo_map_context = RepoMapGenerator(workspace_root).generate_map(prompt=prompt, max_chars=8000)
+                    if repo_map_context:
+                        repo_map_context = f"\n\n=== PROJECT STRUCTURE (AST Map) ===\n{repo_map_context}\n===================================\n"
+                except Exception:
+                    pass
+
                 # ── Phase 3: OpenCode — Write Code ───────────────────────────
                 if status_callback:
                     status_callback(f"OpenCode writing code (Attempt {rnd+1}/{max_rounds})...", "info", "opencode", 50 + rnd*10)
@@ -3394,36 +3406,51 @@ class AgentOrchestrator:
                 plan_for_code = compiled_plan[:max(max_code_prompt_chars, 1500)] if len(compiled_plan) > max_code_prompt_chars else compiled_plan
                 
                 if req_lang == "python":
-                    code_p = f"Write a complete Python script for this plan:\n{plan_for_code}\n\nWrap in ```python```."
+                    code_p = f"Write a complete Python script for this plan:\n{plan_for_code}{repo_map_context}\n\nWrap in ```python```."
                     sys_prompt = coder_sys
                 elif req_lang == "html":
                     code_p = (
-                        f"Implement a complete, highly premium web application or site for this plan:\n{plan_for_code}\n\n"
-                        "To write multiple files (e.g. index.html, styles.css, app.js, package.json), "
+                        f"Implement a complete, highly premium web application or site for this plan:\n{plan_for_code}{repo_map_context}\n\n"
+                        "To write multiple files (e.g. index.html, styles.css, app.js), "
                         "wrap each file's content in a <file path=\"relative/path/to/file\"> tag. E.g.:\n"
-                        "<file path=\"package.json\">\n{\n  \"name\": \"app\",\n  \"scripts\": {\"build\": \"vite build\"}\n}\n</file>\n"
-                        "<file path=\"index.html\">\n...\n</file>\n"
+                        "<file path=\"index.html\">\n<!DOCTYPE html>\n<html>...</html>\n</file>\n"
+                        "<file path=\"styles.css\">\nbody { ... }\n</file>\n"
+                        "<file path=\"app.js\">\nconsole.log('hello');\n</file>\n"
+                        "IMPORTANT: Do NOT wrap the output in markdown code fences. Use ONLY <file> tags.\n"
                         "Ensure all resources and styles are modern and visually stunning. Do not use placeholders or abbreviations."
                     )
                     sys_prompt = (
                         "You are an expert full-stack web developer and UI designer.\n"
                         "You must write complete, production-grade web apps with multiple files.\n"
                         "Wrap each file in a <file path=\"...\">...</file> block.\n"
+                        "Do NOT wrap your output in markdown code fences (```). Use ONLY <file> XML tags.\n"
                         "Do not include placeholders, TODOs, or abbreviations.\n"
                         "Ensure styling uses modern glassmorphism, Google Fonts, hover effects, and CSS flex/grid spacing."
                     )
                 else:
-                    code_p = f"Write a complete, self-contained {lang_name} script for this plan:\n{plan_for_code}\n\nWrap in ```{req_lang}```."
+                    code_p = f"Write a complete, self-contained {lang_name} script for this plan:\n{plan_for_code}{repo_map_context}\n\nWrap in ```{req_lang}```."
                     sys_prompt = f"You are a master {lang_name} programmer. Output only code inside ```{req_lang}``` blocks."
-                    
-                code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_llm, code_p, gen_tokens, gen_temp, system_prompt=sys_prompt)))
+
+                raw_model_output = self._strip_thinking(self._call_model(oc_llm, code_p, gen_tokens, gen_temp, system_prompt=sys_prompt))
+
+                # For HTML/web requests, try multi-file manifest FIRST on raw output
+                # before extract_code strips the <file> tags
+                files_dict = None
+                if req_lang == "html":
+                    files_dict = Sandbox.parse_multi_file_manifest(raw_model_output)
+
+                # Extract code (for non-HTML or if no <file> tags were found)
+                if not files_dict:
+                    code = Sandbox.extract_code(raw_model_output)
+                    # Last-resort: try parsing extracted code for <file> tags too
+                    files_dict = Sandbox.parse_multi_file_manifest(code)
+                else:
+                    # For multi-file HTML, set 'code' to raw output for error reporting
+                    code = raw_model_output
 
                 # ── Phase 4: Execution Sandbox ───────────────────────────────
                 if status_callback:
                     status_callback(f"Executing in Sandbox (Attempt {rnd+1}/{max_rounds})...", "info", "sandbox", 60 + rnd*10)
-                
-                # Check for workspace multi-file manifest
-                files_dict = Sandbox.parse_multi_file_manifest(code)
                 if files_dict:
                     ok, output_log, temp_dir = self.sandbox.execute_workspace(files_dict)
                     output = output_log
