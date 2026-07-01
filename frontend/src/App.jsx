@@ -3,7 +3,7 @@ import "./index.css";
 
 import Sidebar from "./components/layout/Sidebar"
 import SettingsModal from "./components/layout/SettingsModal"
-import InputArea from "./components/input/InputArea
+import InputArea from "./components/input/InputArea"
 import ThinkingBlock from "./components/chat/ThinkingBlock"
 import UserMessage from "./components/chat/UserMessage"
 import MessageRenderer from "./components/chat/MessageRenderer"
