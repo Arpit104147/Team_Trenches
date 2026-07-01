@@ -1,20 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./index.css";
 
-import Sidebar from "./components/layout/Sidebar";
-import SettingsModal from "./components/layout/SettingsModal";
-import InputArea from "./components/input/InputArea";
-import ThinkingBlock from "./components/chat/ThinkingBlock";
-import UserMessage from "./components/chat/UserMessage";
-import MessageRenderer from "./components/chat/MessageRenderer";
-
-/**
- * @module App
- * Root application shell for DeepThink AIOS.
- * Manages global state (sessions, connection, chat history) and
- * composes all child components. No rendering logic lives here —
- * it is purely an orchestrator.
- */
+import Sidebar from "./components/layout/Sidebar"
+import SettingsModal from "./components/layout/SettingsModal"
+import InputArea from "./components/input/InputArea
+import ThinkingBlock from "./components/chat/ThinkingBlock"
+import UserMessage from "./components/chat/UserMessage"
+import MessageRenderer from "./components/chat/MessageRenderer"
 export default function App() {
   // Server connection
   const [serverUrl, setServerUrl] = useState(() =>
@@ -51,18 +43,18 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("chat_sessions") || "[]"); }
     catch { return []; }
   });
-  const [currentSessionId, setCurrentSessionId] = useState(Date.now());
+  const [currentSessionId, setCurrentSessionId] = useState(Date.now())
   const [history, setHistory] = useState([]);
 
   // UI state
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Chat state
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState("")
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentLogs, setCurrentLogs] = useState([]);
+  const [currentLogs, setCurrentLogs] = useState([null]); //added null 
   const [currentStream, setCurrentStream] = useState("");
   const [attachedImage, setAttachedImage] = useState(null);
   const [abortController, setAbortController] = useState(null);
@@ -79,8 +71,7 @@ export default function App() {
   );
 
   // Typing animation for empty state
-  const [displayText, setDisplayText] = useState("");
-
+  const [displayText, setDisplayText] = useState("")
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -91,7 +82,7 @@ export default function App() {
 
   // Empty-state typing effect
   useEffect(() => {
-    const target = "What's on your mind today?";
+    const target = "What is on your mind today?";
     let i = 0;
     setDisplayText("");
     const iv = setInterval(() => {
