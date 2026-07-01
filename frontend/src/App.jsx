@@ -149,7 +149,7 @@ export default function App() {
   const handleOffload = async () => {
     try {
       await fetch(`${serverUrl}/api/offload`, { method: "POST" });
-      alert("All models offloaded from VRAM!");
+      alert("All models offloaded from VRAM");
     } catch { alert("Failed to offload."); }
   };
 
@@ -158,9 +158,9 @@ export default function App() {
     setIsPreloading(true);
     try {
       const res = await fetch(`${serverUrl}/api/load_all`, { method: "POST" });
-      alert(res.ok ? "All models successfully loaded into System RAM!" : "Failed to load all models.");
+      alert(res.ok ? "All models successfully loaded into System RAM" : "Error!! Failed to load all models.");
     } catch {
-      alert("Failed to load all models.");
+      alert("Error!! Failed to load all models.");
     } finally {
       setIsPreloading(false);
     }
@@ -200,7 +200,7 @@ export default function App() {
 
     try {
       // Cold-start hint
-      const initLog = "🧊 Cold start: loading AI models into GPU memory (2-4 min on first run, instant after)...";
+      const initLog = "Cold start: loading AI models into GPU memory (2-4 min on first run, instant after)...";
       setCurrentLogs([initLog]);
       currentLogsRef.current = [initLog];
 
