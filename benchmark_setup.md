@@ -13,14 +13,22 @@ Before running the benchmarks, ensure:
    ```bash
    source venv/bin/activate
    ```
-2. The benchmark models are downloaded:
+2. All Python dependencies are installed. This is required — the `datasets`
+   library is what downloads the official evaluation sets. If it is missing,
+   the runner silently falls back to placeholder **mock data** and the reported
+   scores will **not** be real:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. The benchmark models are downloaded:
    ```bash
    python backend/downloader.py router deepseek_r1 vibethinker opencode
    ```
-3. The backend is running:
+4. The backend is running (serves the API and dashboard on port `8000`):
    ```bash
    python backend/app.py
    ```
+
 
 ---
 
@@ -34,12 +42,14 @@ DeepThink AIOS includes a dedicated, responsive HTML5 dashboard to trigger and m
    http://localhost:8000/benchmark
    ```
 3. **Configure the Evaluation:**
-   * **Category:** Select the benchmark suite (e.g., `HumanEval`, `MBPP`, `GSM8K`, `MATH`, `GPQA (PhD Science)`, `AIME (Olympiad Logic)`, `MuSR (PhD Logic)`, `MMLU-Pro (Prof STEM)`, `SWE-bench Lite`).
+   * **Category:** Select the benchmark suite. Supported categories are: `HumanEval`, `MBPP`, `GSM8K`, `MATH`, `GPQA (PhD Science)`, `AIME (Olympiad Logic)`, `MuSR (PhD Logic)`, `MMLU-Pro (Prof STEM)`, `SWE-bench Lite`, `SWE-bench Pro`, and `SearchQA / HotpotQA`.
+
    * **Sample Size:** Specify the number of questions to sample. Leave it blank or set to `0` to run the entire dataset.
 4. Click **Start Evaluation**.
 
 ### What you will see:
-* **Live Worker Console:** Real-time tracking of individual TPU/GPU/CPU workers, showing which problem they are executing, their status (`Idle`, `Running`, `Passed`, `Failed`), and latency.
+* **Live Worker Console:** Real-time tracking of individual TPU/GPU/CPU workers, showing which problem they are executing, their live status (`Idle`, `Processing`, or the active agent/model stage), and latency. Per-task pass/fail results are reported in the console logs and the accuracy chart.
+
 * **Accuracy Chart:** Real-time updates showing current accuracy compared against industry baselines (GPT-4, Claude 3.5 Sonnet, Llama-3-70B, and DeepThink AIOS).
 * **Speed Metrics:** Throughput (average tokens generated per second per core) and average query latency.
 * **Console Logs:** A scrolling, live logging console capturing exact test steps, warnings, compile failures, and final grading assertions.
