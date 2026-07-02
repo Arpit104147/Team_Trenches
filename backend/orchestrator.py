@@ -3462,6 +3462,100 @@ class AgentOrchestrator:
                 cleaned_response = cleaned_response.replace(block, block_content)
             return f"{cleaned_response}\n\n```{req_lang}\n{code}\n```"
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Aesthetic Reflexion Pass (Optimization A)
+    # After the first HTML draft passes sandbox validation, feed a
+    # screenshot-less "design critique" prompt back to the coder model for
+    # one polish iteration.  This targets contrast, spacing, hero section,
+    # micro-animations, and component completeness — the main gaps a 6.7B
+    # model leaves on the first pass.
+    # ─────────────────────────────────────────────────────────────────────
+    def _aesthetic_reflexion_pass(self, files_dict, prompt, oc_ctx, gen_tokens,
+                                  gen_temp, status_callback=None):
+        """Run one aesthetic self-critique + rewrite loop on HTML output.
+
+        Returns an improved files_dict if the rewrite succeeds, or the
+        original files_dict unchanged if it fails or the model declines.
+        """
+        if not files_dict:
+            return files_dict
+
+        # Only polish if there is an HTML entry point
+        html_files = [p for p in files_dict if p.endswith(".html")]
+        if not html_files:
+            return files_dict
+
+        if status_callback:
+            status_callback("🎨 Aesthetic Reflexion: Polishing UI design...", "info", "opencode", 78)
+
+        # Build a compact snapshot of all files for the critique prompt
+        snapshot_parts = []
+        for path, content in files_dict.items():
+            # Truncate very long files to keep the prompt under control
+            truncated = content[:6000] if len(content) > 6000 else content
+            snapshot_parts.append(f'<file path="{path}">\n{truncated}\n</file>')
+        snapshot = "\n".join(snapshot_parts)
+
+        critique_prompt = (
+            "You are reviewing your own web application output for visual quality.\n"
+            "Below is the current code that ALREADY WORKS in a browser sandbox.\n\n"
+            f"{snapshot}\n\n"
+            "=== DESIGN CRITIQUE CHECKLIST ===\n"
+            "Score each item 1-5 and then rewrite the FULL code with fixes:\n"
+            "1. Hero Section: Is there a compelling hero with headline, subtitle, and CTA button?\n"
+            "2. Color Contrast: Are text and background colors WCAG AA compliant? Is the palette premium (not plain)?\n"
+            "3. Spacing & Rhythm: Are margins, paddings, and gaps consistent? Is there enough whitespace?\n"
+            "4. Typography: Are Google Fonts imported and applied? Are font sizes hierarchical?\n"
+            "5. Micro-Animations: Do buttons, cards, and links have hover transitions (scale, color, shadow)?\n"
+            "6. Component Completeness: Does the page have nav, hero, features/cards, CTA, and footer sections?\n"
+            "7. Responsiveness: Does the layout use CSS Grid or Flexbox with media queries?\n"
+            "8. Icons & Visual Polish: Are there emoji or SVG icons for feature cards? Are borders rounded?\n\n"
+            "IMPORTANT: Output the COMPLETE improved files using <file path=\"...\"> tags.\n"
+            "Do NOT use markdown code fences. Use ONLY <file> XML tags.\n"
+            "Keep ALL existing functionality intact — only improve the visual design."
+        )
+
+        critique_sys = (
+            "You are a senior UI/UX designer reviewing and improving web application code.\n"
+            "Your job is to make the design visually stunning and premium.\n"
+            "Output the complete improved files wrapped in <file path=\"...\">...</file> tags.\n"
+            "Do NOT wrap output in markdown code fences. Use ONLY <file> XML tags.\n"
+            "Never remove existing functionality. Only enhance visual design."
+        )
+
+        try:
+            oc_llm = self._get_model("opencode", required_ctx=oc_ctx)
+            polished_output = self._strip_thinking(
+                self._call_model(oc_llm, critique_prompt, gen_tokens, gen_temp, system_prompt=critique_sys)
+            )
+
+            # Parse the polished output for <file> tags
+            from backend.sandbox import Sandbox
+            polished_files = Sandbox.parse_multi_file_manifest(polished_output)
+            if polished_files and len(polished_files) >= len(html_files):
+                # Validate that the polished output still runs in sandbox
+                polish_ok, polish_log, polish_dir = self.sandbox.execute_workspace(polished_files)
+                if polish_ok:
+                    import shutil
+                    shutil.rmtree(polish_dir, ignore_errors=True)
+                    if status_callback:
+                        status_callback("✨ Aesthetic Reflexion: Design polished successfully!", "success", "opencode", 82)
+                    return polished_files
+                else:
+                    # Polished version broke something — keep original
+                    if polish_dir:
+                        shutil.rmtree(polish_dir, ignore_errors=True)
+                    if status_callback:
+                        status_callback("Aesthetic Reflexion: Polish failed sandbox — keeping original.", "warning", "opencode", 82)
+            else:
+                if status_callback:
+                    status_callback("Aesthetic Reflexion: Model output incomplete — keeping original.", "warning", "opencode", 82)
+        except Exception as e:
+            if status_callback:
+                status_callback(f"Aesthetic Reflexion skipped: {str(e)[:80]}", "warning", "opencode", 82)
+
+        return files_dict
+
     def _synthesize_coding_response(self, prompt, compiled_plan, code, output,
                                    router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback=None, req_lang="python"):
         """Compiles a beautiful, deterministic markdown report from successful execution without an extra LLM call."""
@@ -3563,6 +3657,19 @@ class AgentOrchestrator:
             "go": "Go",
             "rust": "Rust"
         }.get(req_lang, req_lang)
+
+        # ── Optimization (c): Higher token budget for HTML/web design ─────
+        # HTML+CSS+JS multi-file output is inherently larger than a typical
+        # Python script. Boost gen_tokens by 50% (capped at 12288) so the
+        # model can emit complete stylesheets, hero sections, and JS logic
+        # without truncation.
+        if is_web_design or req_lang == "html":
+            gen_tokens = min(12288, int(gen_tokens * 1.5))
+            # Re-check prompt headroom after the boost
+            min_ctx = min(ds_ctx, oc_ctx)
+            if min_ctx - gen_tokens < 1500:
+                gen_tokens = max(2048, min_ctx - 1500)
+            print(f"🎨 Web Design token boost: gen_tokens={gen_tokens}")
 
         logic_temp = 0.6
         # Leave 1000 tokens headroom specifically for the massive 'planner_sys' system prompt
@@ -3688,13 +3795,37 @@ class AgentOrchestrator:
         if is_web_design or req_lang == "html":
             coder_sys += (
                 "\n\n=== WEB APP DESIGN & AESTHETICS RULES ===\n"
-                "You MUST construct a modern, premium user interface with outstanding design aesthetics:\n"
-                "1. Color Palette: Use a curated color scheme (dark mode, neon, slate, teal). No basic plain colors.\n"
-                "2. Typography: Import and use professional fonts (Inter, Outfit, etc.) from Google Fonts.\n"
-                "3. Style & Depth: Implement modern layout effects like glassmorphism (semi-transparent blur backgrounds), smooth gradients, and box shadows.\n"
-                "4. Spacing: Use responsive layouts (CSS Flexbox/Grid) with proper spacing and paddings.\n"
-                "5. Animations: Add transitions and micro-hover animations to all buttons and links.\n"
-                "6. Completeness: Ensure all buttons, forms, and features have active logic, not placeholders."
+                "You MUST construct a modern, premium user interface with outstanding design aesthetics:\n\n"
+                "--- VISUAL FOUNDATION ---\n"
+                "1. Color Palette: Use a curated color scheme (dark mode preferred: slate-900 bg, neon accent,\n"
+                "   teal/violet/emerald highlights). NEVER use plain red/blue/green. Example palette:\n"
+                "   --bg: #0f172a; --surface: #1e293b; --accent: #06b6d4; --text: #f1f5f9; --muted: #94a3b8;\n"
+                "2. Typography: Import Google Fonts (Inter for body, Outfit or Space Grotesk for headings).\n"
+                "   Use a clear type scale: h1=2.5rem, h2=1.75rem, h3=1.25rem, body=1rem, small=0.875rem.\n"
+                "3. Depth & Glass: Use glassmorphism (background: rgba(30,41,59,0.7); backdrop-filter: blur(12px);\n"
+                "   border: 1px solid rgba(255,255,255,0.08); border-radius: 16px;). Add layered box-shadows.\n"
+                "4. Spacing: Use CSS Grid for page layout, Flexbox for components. Maintain consistent\n"
+                "   spacing rhythm (gap: 1.5rem–2rem, padding: 2rem–4rem on sections). Use max-width: 1200px for content.\n"
+                "5. Animations: Add transition: all 0.3s ease to interactive elements. Hover effects:\n"
+                "   transform: translateY(-4px); box-shadow: 0 8px 30px rgba(6,182,212,0.15);\n"
+                "   Buttons: scale(1.02) on hover with color shift. Links: underline-offset animation.\n\n"
+                "--- REQUIRED COMPONENT STRUCTURE ---\n"
+                "Every web page/app MUST include these sections (adapt content to the user's request):\n"
+                "6. Navigation Bar: Sticky top nav with logo/brand name (left), nav links (center/right),\n"
+                "   and a primary CTA button. Use backdrop-filter blur on scroll.\n"
+                "7. Hero Section: Full-width hero with a large headline (gradient text recommended),\n"
+                "   a subtitle paragraph, and 1-2 CTA buttons. Optional: background gradient or pattern.\n"
+                "8. Features / Cards Grid: 3-4 feature cards in a responsive CSS Grid (auto-fit, minmax(280px, 1fr)).\n"
+                "   Each card: icon/emoji at top, bold title, description text, subtle hover lift animation.\n"
+                "9. Call-to-Action Block: A visually distinct section with gradient background,\n"
+                "   compelling headline, and a prominent action button.\n"
+                "10. Footer: Dark footer with organized columns (links, about, contact), social icons,\n"
+                "    and a copyright line. Subtle top border or gradient separator.\n\n"
+                "--- COMPLETENESS ---\n"
+                "11. All buttons, forms, nav links, and interactive elements MUST have real JavaScript logic.\n"
+                "    No placeholders, no TODO comments, no lorem ipsum. Use realistic demo content.\n"
+                "12. Add a <meta name='viewport' content='width=device-width, initial-scale=1.0'> tag.\n"
+                "13. Include @media queries for tablet (max-width: 768px) and mobile (max-width: 480px)."
             )
 
         # ── Execution Loop ──────────────────────────────────────────────────
@@ -3863,12 +3994,29 @@ class AgentOrchestrator:
                     ok, output_log, temp_dir = self.sandbox.execute_workspace(files_dict)
                     output = output_log
                     if ok:
+                        # ── Aesthetic Reflexion Pass (Optimization A) ─────
+                        # Run one design-critique + rewrite loop to polish
+                        # the visual quality before serving to the user.
+                        files_dict = self._aesthetic_reflexion_pass(
+                            files_dict, prompt, oc_ctx, gen_tokens,
+                            gen_temp, status_callback
+                        )
+
                         import uuid
                         import shutil
                         session_id = f"session_{uuid.uuid4().hex[:8]}"
                         target_workspace_dir = os.path.join("workspaces", session_id)
                         os.makedirs(target_workspace_dir, exist_ok=True)
-                        shutil.copytree(temp_dir, target_workspace_dir, dirs_exist_ok=True)
+
+                        # Re-execute the (potentially polished) files to
+                        # produce the final workspace directory.
+                        final_ok, final_log, final_dir = self.sandbox.execute_workspace(files_dict)
+                        if final_ok and final_dir:
+                            shutil.copytree(final_dir, target_workspace_dir, dirs_exist_ok=True)
+                            shutil.rmtree(final_dir, ignore_errors=True)
+                        else:
+                            # Fallback: use the original temp_dir
+                            shutil.copytree(temp_dir, target_workspace_dir, dirs_exist_ok=True)
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         
                         entry_rel = ""
