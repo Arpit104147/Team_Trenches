@@ -135,7 +135,13 @@ class AgentOrchestrator:
         self.device_mode = "gpu"
         self.gpu_layers = -1
         self.search_mode = "off"  # off, simple, prediction, extreme
-        
+        # ── Accuracy Booster (opt-in, benchmark-only by default) ──
+        # When True, numeric/math prompts route through PAL (Program-Aided Language)
+        # + self-consistency voting (k=3) BEFORE the normal reasoning pipeline.
+        # Off by default so interactive chat behaviour is unchanged.
+        self.accuracy_boost = False
+        self.accuracy_boost_k = 3  # samples for self-consistency
+
         self.sandbox = Sandbox(timeout=300)
         self.memory = Memory()
         self.web_search = WebSearch()
@@ -1093,8 +1099,331 @@ class AgentOrchestrator:
         return text.strip()
 
     # =========================================================================
+    # ACCURACY BOOSTER — PAL + Self-Consistency (opt-in, benchmark-only)
+    # =========================================================================
+    def _looks_numeric_problem(self, prompt):
+        """Heuristic: decide whether a prompt is a math/arithmetic word problem
+        that would benefit from Program-Aided Language (PAL) + self-consistency.
+
+        Returns True if the prompt is short-to-medium length and mentions
+        numeric quantities, arithmetic operators, or explicit math keywords.
+        """
+        if not prompt or not isinstance(prompt, str):
+            return False
+        p = prompt.strip()
+        if len(p) > 4000:  # too big to be a benchmark math problem
+            return False
+        pl = p.lower()
+
+        # Fast reject: multi-turn code / HTML / big system prompts
+        if pl.count("```") >= 2 or "<html" in pl or "<file " in pl:
+            return False
+
+        # Signal 1: explicit math/word-problem vocabulary
+        math_kw = (
+            "compute", "calculate", "how many", "how much", "what is",
+            "solve for", "find the value", "find the number", "find x",
+            "sum of", "product of", "difference between", "average",
+            "percent", "percentage", "probability", "combinations",
+            "permutations", "factorial", "prime", "divisible", "remainder",
+            "gcd", "lcm", "square root", "cube root", "logarithm",
+            "derivative", "integral", "matrix", "vector", "modulo",
+            "how old", "how far", "how fast", "how long", "how tall",
+            "at what time", "at what rate",
+        )
+        if any(k in pl for k in math_kw):
+            return True
+
+        # Signal 2: mostly-numeric character density
+        digits = sum(1 for c in p if c.isdigit())
+        alpha = sum(1 for c in p if c.isalpha()) or 1
+        if digits >= 2 and (digits / alpha) > 0.05:
+            # Contains at least one arithmetic operator or "equals" sign
+            if re.search(r"[+\-*/=^%]|\bplus\b|\bminus\b|\btimes\b|\bdivided\b", pl):
+                return True
+
+        return False
+
+    def _extract_final_numeric_answer(self, text):
+        """Robust final-numeric-answer extractor for math/word problems.
+
+        Priority order:
+          1. LaTeX \boxed{...} contents (standard MATH benchmark convention)
+          2. Explicit '#### <num>' (GSM8K convention)
+          3. 'answer is X', 'the answer: X', 'final answer: X'
+          4. Last number appearing in the text (fallback)
+
+        Returns the number as a normalized string (digits, optional sign,
+        optional decimal), or None if no number can be extracted.
+        """
+        if not text:
+            return None
+        s = str(text)
+
+        def _norm(num_str):
+            n = num_str.strip().replace(",", "").replace("$", "").rstrip(".")
+            n = n.replace(" ", "")
+            # Strip trailing units like "cm", "kg" etc.
+            m = re.match(r"^([+-]?\d+(?:\.\d+)?)", n)
+            return m.group(1) if m else None
+
+        # 1) \boxed{...}
+        m = re.search(r"\\boxed\s*\{([^{}]+)\}", s)
+        if m:
+            inner = m.group(1)
+            m2 = re.search(r"[+-]?\d[\d,]*(?:\.\d+)?", inner)
+            if m2:
+                v = _norm(m2.group(0))
+                if v is not None:
+                    return v
+
+        # 2) GSM8K #### token
+        m = re.search(r"####\s*([+-]?\d[\d,]*(?:\.\d+)?)", s)
+        if m:
+            v = _norm(m.group(1))
+            if v is not None:
+                return v
+
+        # 3) "answer is/final answer:" patterns (last occurrence wins)
+        candidates = re.findall(
+            r"(?:final\s+answer|the\s+answer|answer)\s*(?:is|:|=)\s*\$?\s*([+-]?\d[\d,]*(?:\.\d+)?)",
+            s, flags=re.IGNORECASE
+        )
+        if candidates:
+            v = _norm(candidates[-1])
+            if v is not None:
+                return v
+
+        # 4) Fallback: last number in text
+        nums = re.findall(r"[+-]?\d[\d,]*(?:\.\d+)?", s)
+        if nums:
+            v = _norm(nums[-1])
+            if v is not None:
+                return v
+        return None
+
+    def _self_consistency_vote(self, answers):
+        """Majority vote over a list of normalized numeric-answer strings.
+
+        Uses float-tolerance bucketing (rel_tol=1e-4, abs_tol=1e-6) so
+        numerically equivalent answers like '60' and '60.0' collapse to
+        the same bucket. Returns the most-voted answer string, or None if
+        the list is empty / all-None.
+        """
+        vals = [a for a in (answers or []) if a is not None and str(a).strip() != ""]
+        if not vals:
+            return None
+
+        buckets = []  # list of (representative_str, count, float_or_None)
+        for v in vals:
+            try:
+                fv = float(v)
+            except Exception:
+                fv = None
+            placed = False
+            for i, (rep, count, rf) in enumerate(buckets):
+                if fv is not None and rf is not None:
+                    denom = max(abs(fv), abs(rf), 1.0)
+                    if abs(fv - rf) <= max(1e-4 * denom, 1e-6):
+                        buckets[i] = (rep, count + 1, rf)
+                        placed = True
+                        break
+                elif rep == v:
+                    buckets[i] = (rep, count + 1, rf)
+                    placed = True
+                    break
+            if not placed:
+                buckets.append((v, 1, fv))
+
+        buckets.sort(key=lambda t: (-t[1], t[0]))
+        return buckets[0][0]
+
+    def _pal_solve(self, prompt, ds_llm, gen_tokens):
+        """Program-Aided Language solver: ask the reasoner to emit a Python
+        program that COMPUTES the answer, execute it in the sandbox, and
+        return the final numeric answer.
+
+        Returns a tuple (answer_str_or_None, raw_stdout, success_bool).
+        The answer is extracted from the sandbox stdout using
+        _extract_final_numeric_answer as a fallback if the model didn't
+        print in FINAL_ANSWER: <n> form.
+        """
+        pal_sys = (
+            "You are a careful mathematician who solves problems by writing "
+            "a short Python program. The program computes the exact answer "
+            "and prints it on the LAST line in the form:\n"
+            "    FINAL_ANSWER: <number>\n"
+            "Use math, fractions, or sympy as needed. Do NOT print anything "
+            "else after that line. Do NOT include markdown fences other "
+            "than one ```python``` block. Do NOT read files or use input()."
+        )
+        pal_prompt = (
+            "Solve the following problem by writing a Python program that "
+            "computes and prints the final numeric answer.\n\n"
+            "Problem:\n"
+            f"{prompt.strip()}\n\n"
+            "Write the complete program in a single ```python``` block. "
+            "End with `print(f\"FINAL_ANSWER: {answer}\")`."
+        )
+        try:
+            raw = self._strip_thinking(
+                self._call_model(
+                    ds_llm, pal_prompt,
+                    max_tokens=min(1024, max(256, gen_tokens // 2)),
+                    temperature=0.2,
+                    system_prompt=pal_sys,
+                )
+            )
+        except Exception:
+            return None, "", False
+
+        code = Sandbox.extract_code(raw or "")
+        if not code or len(code.strip()) < 5:
+            return None, raw or "", False
+
+        try:
+            ok, out = self.sandbox.execute(code, language="python")
+        except Exception as e:
+            return None, f"sandbox_error: {e}", False
+
+        if not ok:
+            return None, out or "", False
+
+        # Prefer FINAL_ANSWER: <n>
+        m = re.search(r"FINAL_ANSWER\s*:\s*([+-]?\d[\d,]*(?:\.\d+)?)",
+                      out or "", flags=re.IGNORECASE)
+        if m:
+            ans = m.group(1).replace(",", "")
+            return ans, out or "", True
+
+        # Fallback: last number on the last non-empty line
+        lines = [l for l in (out or "").splitlines() if l.strip()]
+        if lines:
+            v = self._extract_final_numeric_answer(lines[-1])
+            if v is not None:
+                return v, out or "", True
+        return None, out or "", True
+
+    def _accuracy_boost_solve(self, prompt, ds_ctx, gen_tokens, status_callback=None):
+        """Orchestrate PAL + self-consistency for a numeric problem.
+
+        Strategy:
+          1. Run PAL (Program-Aided Language) k times with slight temperature
+             variation, collecting each executed program's numeric answer.
+          2. Additionally take one direct chain-of-thought answer as a tie-
+             breaker vote.
+          3. Majority-vote the collected numeric answers.
+          4. If a confident majority exists (>= ceil(k/2) agreeing votes),
+             return a formatted, boxed answer and short justification.
+          5. Otherwise return None so the caller falls through to the normal
+             (playground/debate) reasoning pipeline.
+
+        Returns a response string on success, or None to defer.
+        """
+        k = max(1, int(getattr(self, "accuracy_boost_k", 3)))
+        if status_callback:
+            status_callback(
+                f"⚡ Accuracy Booster: PAL + self-consistency (k={k})...",
+                "info", "deepseek_r1", 20
+            )
+
+        ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+
+        answers = []
+        best_stdout = ""
+        pal_success_count = 0
+
+        for i in range(k):
+            if self.cancel_event and self.cancel_event.is_set():
+                raise RuntimeError("Generation cancelled by user.")
+            if status_callback:
+                status_callback(
+                    f"⚡ PAL sample {i + 1}/{k}...", "info", "deepseek_r1",
+                    20 + int((i / max(1, k)) * 40)
+                )
+            ans, stdout, ok = self._pal_solve(prompt, ds_llm, gen_tokens)
+            if ok and ans is not None:
+                answers.append(ans)
+                pal_success_count += 1
+                if not best_stdout:
+                    best_stdout = stdout
+
+        # Tie-breaker: one direct chain-of-thought answer
+        try:
+            cot_sys = (
+                "You are a careful mathematician. Solve the problem step by "
+                "step, then end with a line of the exact form:\n"
+                "FINAL_ANSWER: <number>"
+            )
+            cot_raw = self._strip_thinking(
+                self._call_model(
+                    ds_llm, prompt.strip(),
+                    max_tokens=min(1024, max(256, gen_tokens // 2)),
+                    temperature=0.3, system_prompt=cot_sys,
+                )
+            )
+            cot_ans = self._extract_final_numeric_answer(cot_raw)
+            if cot_ans is not None:
+                answers.append(cot_ans)
+        except Exception:
+            pass
+
+        if not answers:
+            return None  # defer to standard pipeline
+
+        winner = self._self_consistency_vote(answers)
+        if winner is None:
+            return None
+
+        # Count agreement with float tolerance
+        def _agree(a, b):
+            try:
+                fa, fb = float(a), float(b)
+                denom = max(abs(fa), abs(fb), 1.0)
+                return abs(fa - fb) <= max(1e-4 * denom, 1e-6)
+            except Exception:
+                return str(a) == str(b)
+
+        agree_count = sum(1 for a in answers if _agree(a, winner))
+        # Require a genuine majority relative to the PAL sample count.
+        needed = (k // 2) + 1
+        if agree_count < needed:
+            # Not confident enough — let the heavier pipeline handle it.
+            return None
+
+        if status_callback:
+            status_callback(
+                f"⚡ Accuracy Booster VERIFIED (answer={winner}, "
+                f"{agree_count}/{len(answers)} agree)",
+                "success", "deepseek_r1", 100
+            )
+
+        stdout_block = ""
+        if best_stdout and best_stdout.strip():
+            trimmed = best_stdout.strip()
+            if len(trimmed) > 1500:
+                trimmed = trimmed[:1500] + "\n... [output truncated]"
+            stdout_block = f"\n\n**Program output:**\n```text\n{trimmed}\n```"
+
+        try:
+            self.memory.save(prompt, f"[Accuracy Booster] answer={winner}")
+        except Exception:
+            pass
+
+        return (
+            f"## Verified Answer\n"
+            f"$$\\boxed{{{winner}}}$$\n\n"
+            f"Solved via Program-Aided Language (PAL) reasoning with "
+            f"self-consistency voting: **{agree_count}/{len(answers)}** "
+            f"independent solution attempts agreed on this answer."
+            f"{stdout_block}"
+        )
+
+    # =========================================================================
     # AGENT IDE — Incremental Patching Engine
     # =========================================================================
+
+
     def _extract_error_line(self, traceback_text):
         """Extract the line number of the crash from a Python traceback string."""
         if not traceback_text:
@@ -2462,7 +2791,7 @@ class AgentOrchestrator:
                 
                 result = f"## Prediction & Forecasting Analysis\n\n"
                 if metrics_line:
-                    result += f"=== PREDICTIVE_METRICS ===\n{metrics_line}\n==========================\n\n"
+                    result += f"=== PREDICTIVE_METRICS ===\n{metrics_line}\n=== /PREDICTIVE_METRICS ===\n\n"
                 result += f"```python\n{code}\n```\n"
                 
                 # Check if a 3D visualization needs to be generated and appended
@@ -2611,24 +2940,55 @@ class AgentOrchestrator:
     # MAIN PIPELINE ENTRY POINT
     # =========================================================================
     def process_query(self, prompt, mode="auto", selected_models=None, status_callback=None):
+        # Wrap the real implementation so we can capture the last assistant turn
+        # for follow-up commands like "generate 3d" that need the previous response.
+        try:
+            result = self._process_query_impl(prompt, mode, selected_models, status_callback)
+        except Exception:
+            raise
+        try:
+            # Store only if this wasn't itself a "generate 3d" follow-up.
+            _p = prompt.strip().lower().rstrip("?.!")
+            _triggers = ("generate 3d", "create 3d", "yes generate 3d", "yes create 3d",
+                         "show 3d", "yes 3d", "make 3d")
+            if not any(_p == t or (len(_p.split()) <= 4 and _p.startswith(t)) for t in _triggers):
+                if isinstance(result, str) and len(result) > 20:
+                    # Keep only the first ~6k chars to avoid unbounded growth.
+                    self._last_assistant_turn = result[:6000]
+        except Exception:
+            pass
+        return result
+
+    def _process_query_impl(self, prompt, mode="auto", selected_models=None, status_callback=None):
         # ── Handle "generate 3d" follow-up command ──────────────────────
-        prompt_lower_check = prompt.strip().lower()
-        generate_3d_triggers = ["generate 3d", "create 3d", "yes generate 3d", "yes create 3d", "show 3d", "yes 3d", "make 3d"]
-        if any(prompt_lower_check == trig or prompt_lower_check.startswith(trig) for trig in generate_3d_triggers):
+        # Only trigger on EXACT match or when the trigger is the entire short prompt
+        # (≤ 4 words). Prevents mis-routing of prompts like "generate 3d printing tutorials".
+        prompt_lower_check = prompt.strip().lower().rstrip("?.!")
+        generate_3d_triggers = ["generate 3d", "create 3d", "yes generate 3d", "yes create 3d",
+                                "show 3d", "yes 3d", "make 3d", "generate 3d visualization",
+                                "create 3d visualization", "make 3d visualization"]
+        word_count = len(prompt_lower_check.split())
+        is_3d_command = (
+            prompt_lower_check in generate_3d_triggers or
+            (word_count <= 4 and any(prompt_lower_check.startswith(trig) for trig in generate_3d_triggers))
+        )
+        if is_3d_command:
             if status_callback:
                 status_callback("Generating 3D Visualization from last response...", "info", "opencode", 10)
-            # Retrieve the most recent memory entry to use as context for 3D generation
-            last_context = ""
-            try:
-                import sqlite3
-                with sqlite3.connect(self.memory.sqlite_path, timeout=10.0) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT doc FROM memories ORDER BY created_at DESC LIMIT 1")
-                    row = cursor.fetchone()
-                    if row:
-                        last_context = row[0]
-            except Exception:
-                pass
+            # Prefer the immediately-preceding assistant turn stored in-memory.
+            # Fall back to the most recent memory DB entry, then a broad recall.
+            last_context = getattr(self, "_last_assistant_turn", "") or ""
+            if not last_context:
+                try:
+                    import sqlite3
+                    with sqlite3.connect(self.memory.sqlite_path, timeout=10.0) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT doc FROM memories ORDER BY created_at DESC LIMIT 1")
+                        row = cursor.fetchone()
+                        if row:
+                            last_context = row[0]
+                except Exception:
+                    pass
             if not last_context:
                 last_context = self.memory.recall("visualization 3d simulation", n_results=1)
             if not last_context:
@@ -2780,18 +3140,66 @@ class AgentOrchestrator:
                                 )
                                 scraped_count += 1
                 
-                # Assemble combined web context block
-                snippets_block = "Search Result Snippets:\n" + "\n\n".join(snippets_list) if snippets_list else "No search results returned."
-                scraped_block = "\n\n".join(scraped_pages) if scraped_pages else "No pages could be deep-scraped (Cloudflare blocking or empty content)."
-                
-                web_context = (
-                    f"=== WEB SEARCH RESULTS ===\n"
-                    f"{snippets_block}\n\n"
-                    f"=== DEEP SCRAPED DETAILS ===\n"
-                    f"{scraped_block}\n"
-                    f"===========================\n"
-                )
-                    
+                # ── Assemble combined web context block (Phase 2.3) ─────
+                #
+                # Old behavior injected the "=== WEB SEARCH RESULTS ===" +
+                # "=== DEEP SCRAPED DETAILS ===" headers *even when both
+                # blocks were literally the strings "No search results
+                # returned." / "No pages could be deep-scraped …". The LLM
+                # would then dutifully cite this "context" and hallucinate
+                # a confident answer built on nothing.
+                #
+                # New rules:
+                #   * If nothing was scraped AND no snippets came back,
+                #     `web_context` stays empty — downstream code will
+                #     omit the "Web Context:" header and drop the
+                #     "you have live search" system prompt.
+                #   * If we have snippets but no deep-scraped pages, we
+                #     include the snippets and add a *visible* warning
+                #     rather than silently pretending scrapes succeeded.
+                #   * If we have both, format as before.
+                have_snippets = bool(snippets_list)
+                have_scrapes = bool(scraped_pages)
+
+                if not have_snippets and not have_scrapes:
+                    # Full failure — do NOT inject a "context" block that
+                    # says "nothing found"; that's an invitation to
+                    # hallucinate. Just leave it empty and fall back to
+                    # base assistant prompt.
+                    web_context = ""
+                    if status_callback:
+                        status_callback(
+                            "Web search returned no usable results — answering from model knowledge.",
+                            "warn", "router", 20
+                        )
+                else:
+                    snippets_block = (
+                        "Search Result Snippets:\n" + "\n\n".join(snippets_list)
+                    ) if have_snippets else ""
+
+                    if have_scrapes:
+                        scraped_block = "\n\n".join(scraped_pages)
+                        scraped_section = (
+                            f"=== DEEP SCRAPED DETAILS ===\n"
+                            f"{scraped_block}\n"
+                        )
+                    else:
+                        # Snippets only. Flag explicitly so the model
+                        # doesn't overstate confidence.
+                        scraped_section = (
+                            f"=== DEEP SCRAPED DETAILS ===\n"
+                            f"(No full pages could be deep-scraped — "
+                            f"only search-result snippets are available. "
+                            f"Treat any specific claim as unverified.)\n"
+                        )
+
+                    web_context = (
+                        f"=== WEB SEARCH RESULTS ===\n"
+                        f"{snippets_block}\n\n"
+                        f"{scraped_section}"
+                        f"===========================\n"
+                    )
+
             except Exception as e:
                 print(f"Web search enrichment failed: {e}")
                 web_context = ""
@@ -3223,7 +3631,7 @@ class AgentOrchestrator:
             "          'forecast': [100.5, 101.2, 102.8],\n"
             "          'dates': ['2026-06-24', '2026-06-25', '2026-06-26']\n"
             "      }))\n"
-            "      print('==========================')\n\n"
+            "      print('=== /PREDICTIVE_METRICS ===')\n\n"
             "12. CYBERSECURITY, CRYPTOGRAPHY & NETWORK TASKS:\n"
             "    - You can import `cryptography` (e.g. Fernet, AES, RSA, padding, hashes), `scapy` (for packet crafting/sniffing simulation), `jwt` (or `pyjwt`), and `hashlib` / `hmac`.\n"
             "    - If you are writing an encryption or token task, you MUST write automated validation in the script to verify that ciphertext can be decrypted back to the original plaintext, and that signatures/tokens verify correctly.\n"
@@ -3805,9 +4213,26 @@ class AgentOrchestrator:
     # =====================================================================
     def _reasoning_pipeline(self, prompt, enriched_prompt, router_llm,
                             router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
+        # ── Accuracy Booster (opt-in): PAL + Self-Consistency ────────────
+        # When enabled (benchmark-only by default), numeric/math word problems
+        # route through Program-Aided Language + self-consistency voting BEFORE
+        # the normal reasoning pipeline. A confident majority answer short-
+        # circuits the expensive playground/debate loop. On any failure we fall
+        # through to the standard pipeline so behaviour is never worse.
+        if getattr(self, "accuracy_boost", False) and self._looks_numeric_problem(prompt):
+            try:
+                boosted = self._accuracy_boost_solve(
+                    prompt, ds_ctx, gen_tokens, status_callback
+                )
+                if boosted:
+                    return boosted
+            except Exception as e:
+                print(f"⚠️ Accuracy booster failed, falling back to standard pipeline: {e}")
+
         # ── Check: Can this be playground-verified? ──────────────────────
         # Must check this BEFORE loading ds_llm to prevent EVM from evicting router_llm
         use_playground = self._is_playground_applicable(router_llm, prompt)
+
 
 
         # Leave 1000 tokens headroom specifically for the massive 'planner_sys' system prompt

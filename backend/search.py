@@ -1,8 +1,30 @@
 import os
 import json
+import re
 import urllib.parse
 import requests
 from bs4 import BeautifulSoup  # Inherited from system packages if available
+
+# ─────────────────────────────────────────────────────────────────────────
+# Grounding-quality knobs (Phase 2.2)
+#
+# PER_SOURCE_CHAR_CAP     Cap for text extracted from a single source. The
+#                          old code used 15 000 chars per source which
+#                          crowded out the other 2-3 sources entirely;
+#                          2 500 lets 3-5 sources coexist in ~8-12k of ctx.
+# MAX_SCRAPE_ATTEMPTS     After domain-dedup, how many URLs we're willing
+#                          to hit per query. Bounded to keep latency low.
+# PARAGRAPH_KEEP_TOP_N    From each scraped page we keep at most this many
+#                          paragraphs, chosen by keyword overlap with the
+#                          query. Prevents boilerplate menu text from
+#                          dominating the extracted context.
+# MIN_USEFUL_TEXT_CHARS   Below this length a scraped source is treated as
+#                          empty (captcha stubs, error pages, redirects).
+# ─────────────────────────────────────────────────────────────────────────
+PER_SOURCE_CHAR_CAP = 2_500
+MAX_SCRAPE_ATTEMPTS = 3
+PARAGRAPH_KEEP_TOP_N = 12
+MIN_USEFUL_TEXT_CHARS = 400
 
 class WebSearch:
     def __init__(self, google_api_key=None, google_cx=None, searxng_url=None):
@@ -204,6 +226,188 @@ class WebSearch:
         except Exception as e:
             print(f"Failed to deep scrape {url}: {str(e)}")
             return ""
+
+    # ────────────────────────────────────────────────────────────────────
+    # Phase 2.2 — grounding-quality helpers.
+    #
+    # These new methods work *on top of* the existing search()/scrape_url()
+    # so we don't have to touch callers that only want raw results. The
+    # orchestrator's RAG path should prefer `search_and_scrape()`.
+    # ────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _dedup_by_domain(results):
+        """
+        Keep at most one hit per registered netloc (foo.example.com counts
+        as `example.com`). Preserves input ordering so the highest-ranked
+        result from each domain wins.
+        """
+        seen = set()
+        deduped = []
+        for r in results:
+            link = (r.get("link") or "").strip()
+            if not link:
+                continue
+            try:
+                netloc = urllib.parse.urlparse(link).netloc.lower()
+            except Exception:
+                netloc = link
+            # Reduce "en.wikipedia.org" and "de.wikipedia.org" to the same
+            # domain family; likewise "docs.python.org" and "www.python.org".
+            parts = netloc.split(".")
+            root = ".".join(parts[-2:]) if len(parts) >= 2 else netloc
+            if root in seen:
+                continue
+            seen.add(root)
+            deduped.append(r)
+        return deduped
+
+    @staticmethod
+    def _query_keywords(query):
+        """Extract lowercase content words from `query` for relevance scoring."""
+        _STOP = {
+            "a", "an", "and", "or", "the", "of", "in", "on", "at", "to", "for",
+            "is", "are", "was", "were", "be", "been", "being", "with", "by",
+            "as", "it", "its", "this", "that", "these", "those", "how", "what",
+            "when", "where", "why", "which", "who", "whom", "do", "does", "did",
+            "can", "could", "should", "would", "will", "shall", "may", "might",
+        }
+        tokens = re.findall(r"[a-z0-9][a-z0-9\-']+", query.lower())
+        return set(t for t in tokens if len(t) > 2 and t not in _STOP)
+
+    def _relevance_filter(self, cleaned_text, keywords):
+        """
+        Split `cleaned_text` into paragraphs, score each by keyword overlap
+        with the query, and return the concatenation of the top-N most
+        relevant paragraphs (capped by PER_SOURCE_CHAR_CAP). This replaces
+        the naive "first N thousand chars" truncation which usually captured
+        nav / boilerplate rather than the answer.
+
+        If `keywords` is empty (very short query), just return the head of
+        the text — falling back to the old behavior.
+        """
+        if not cleaned_text:
+            return ""
+        if not keywords:
+            return cleaned_text[:PER_SOURCE_CHAR_CAP]
+
+        # Split on blank lines so a paragraph is a semantic unit, not one line.
+        paragraphs = [p.strip() for p in re.split(r"\n{2,}", cleaned_text) if p.strip()]
+        if not paragraphs:
+            # Fall back to line-based splitting if the page had no blank lines.
+            paragraphs = [ln.strip() for ln in cleaned_text.splitlines() if ln.strip()]
+
+        scored = []
+        for p in paragraphs:
+            # Skip fragments that are obviously navigation / cookie banners.
+            if len(p) < 40:
+                continue
+            p_words = set(re.findall(r"[a-z0-9][a-z0-9\-']+", p.lower()))
+            overlap = len(keywords & p_words)
+            if overlap == 0:
+                continue
+            # Reward density: a short paragraph with 3 hits beats a huge
+            # paragraph with 3 hits — this favors precision over recall.
+            density = overlap / max(1, len(p_words))
+            scored.append((overlap + density, p))
+
+        if not scored:
+            # Nothing matched — return the head of the page as a last resort
+            # (better than empty; still capped).
+            return cleaned_text[:PER_SOURCE_CHAR_CAP]
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        chosen = []
+        total = 0
+        for _, p in scored[:PARAGRAPH_KEEP_TOP_N]:
+            if total + len(p) > PER_SOURCE_CHAR_CAP:
+                remaining = PER_SOURCE_CHAR_CAP - total
+                if remaining > 200:
+                    chosen.append(p[:remaining] + "…")
+                break
+            chosen.append(p)
+            total += len(p)
+        return "\n\n".join(chosen)
+
+    def search_and_scrape(self, query, max_results=5, max_scrapes=None):
+        """
+        High-level RAG helper (Phase 2.2).
+
+        1. Run `search(query, max_results)`.
+        2. Domain-dedup so a single site can't dominate.
+        3. Deep-scrape up to `max_scrapes` (default MAX_SCRAPE_ATTEMPTS).
+        4. Filter each scraped page down to the paragraphs most relevant
+           to the query (PARAGRAPH_KEEP_TOP_N × PER_SOURCE_CHAR_CAP cap).
+        5. Return a structured dict:
+
+            {
+              "empty": bool,                       # True ⇔ no usable text
+              "sources_scraped": int,              # pages that produced text
+              "sources_blocked": int,              # pages that returned "" 
+              "context": str,                      # joined, source-labeled
+              "sources": [                         # per-source metadata
+                  {"title", "link", "netloc", "chars"},
+                  ...
+              ]
+            }
+
+        The `context` is pre-labeled with `[SOURCE 1: <netloc>]` blocks so
+        the LLM can attribute claims back to a specific origin. Callers
+        should check `empty` and *omit* any "Web-scraped context:" header
+        when it is True — injecting an empty block encourages the model to
+        hallucinate rather than admit ignorance.
+        """
+        if max_scrapes is None:
+            max_scrapes = MAX_SCRAPE_ATTEMPTS
+
+        raw = self.search(query, max_results=max_results) or []
+        deduped = self._dedup_by_domain(raw)[:max_scrapes]
+
+        keywords = self._query_keywords(query)
+        parts = []
+        sources_meta = []
+        sources_scraped = 0
+        sources_blocked = 0
+
+        for idx, r in enumerate(deduped, start=1):
+            link = r.get("link", "")
+            title = r.get("title", "")
+            try:
+                netloc = urllib.parse.urlparse(link).netloc.lower() or "unknown"
+            except Exception:
+                netloc = "unknown"
+
+            raw_text = self.scrape_url(link) if link else ""
+            if not raw_text or len(raw_text) < MIN_USEFUL_TEXT_CHARS:
+                # Blocked / captcha / too-short redirect page.
+                sources_blocked += 1
+                continue
+
+            filtered = self._relevance_filter(raw_text, keywords)
+            if not filtered or len(filtered) < MIN_USEFUL_TEXT_CHARS // 2:
+                sources_blocked += 1
+                continue
+
+            sources_scraped += 1
+            parts.append(
+                f"[SOURCE {sources_scraped}: {netloc}] {title}\n{filtered}"
+            )
+            sources_meta.append({
+                "title": title,
+                "link": link,
+                "netloc": netloc,
+                "chars": len(filtered),
+            })
+
+        context = "\n\n---\n\n".join(parts)
+        return {
+            "empty": sources_scraped == 0,
+            "sources_scraped": sources_scraped,
+            "sources_blocked": sources_blocked,
+            "context": context,
+            "sources": sources_meta,
+        }
+
 
 if __name__ == "__main__":
     # Test search

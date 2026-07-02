@@ -1,8 +1,31 @@
 import os
 import sqlite3
 import json
+import math
+import time as _time
 import numpy as np
 import uuid
+
+# ─────────────────────────────────────────────────────────────────────────
+# Retrieval-quality knobs (Phase 2.1)
+# These are the empirical cutoffs that separate "genuinely related" hits
+# from "vaguely on-topic" noise for MiniLM-class 384-d embeddings.
+#
+# MIN_VECTOR_SCORE          — hard floor for a hit to count as relevant.
+# TOP_HIT_MARGIN            — drop any hit more than this cosine below the
+#                              best hit (prevents blending 0.42s with 0.91s).
+# RECENCY_WEIGHT            — how much a recent memory outranks an old one
+#                              of equal cosine similarity. 0.15 == "modest".
+# RECENCY_HALF_LIFE_DAYS    — half-life for the recency bonus.
+# KEYWORD_MIN_MATCHES       — content-word overlap required for the
+#                              keyword fallback to fire when vector search
+#                              produces no hits above MIN_VECTOR_SCORE.
+# ─────────────────────────────────────────────────────────────────────────
+MIN_VECTOR_SCORE = 0.65
+TOP_HIT_MARGIN = 0.15
+RECENCY_WEIGHT = 0.15
+RECENCY_HALF_LIFE_DAYS = 30.0
+KEYWORD_MIN_MATCHES = 3
 
 class Memory:
     def __init__(self, db_path="./forge_memory_db"):
@@ -105,36 +128,56 @@ class Memory:
             except Exception as e:
                 print(f"ChromaDB query failed: {str(e)}. Falling back to SQLite recall.")
 
-        # SQLite Query Fallback
+        # SQLite Query Fallback — now selects `created_at` so we can compute
+        # a recency bonus (Phase 2.1).
         with sqlite3.connect(self.sqlite_path, timeout=30.0) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, task, doc, metadata, embedding FROM memories")
+            cursor.execute(
+                "SELECT id, task, doc, metadata, embedding, created_at FROM memories"
+            )
             rows = cursor.fetchall()
 
         if not rows:
             return ""
 
         def _prioritize_and_format(scored_items, limit):
+            """
+            scored_items is a list of (score, doc, meta_str). Higher-score items
+            already come first. This function:
+              (a) drops any hit more than TOP_HIT_MARGIN below the best score;
+              (b) preserves solution > mistake ordering;
+              (c) trims to `limit` items and truncates the joined text.
+            """
+            if not scored_items:
+                return ""
+
+            best_score = scored_items[0][0]
+            filtered_by_margin = [
+                item for item in scored_items
+                if (best_score - item[0]) <= TOP_HIT_MARGIN
+            ]
+
             solutions = []
             mistakes = []
-            for score, doc, meta_str in scored_items:
+            for score, doc, meta_str in filtered_by_margin:
                 meta = {}
                 if meta_str:
                     try:
                         meta = json.loads(meta_str)
-                    except:
+                    except Exception:
                         pass
                 if meta.get('type') == 'mistake_fix':
                     mistakes.append(doc)
                 else:
                     solutions.append(doc)
-            
+
             filtered = solutions[:limit]
             if len(filtered) < limit and mistakes:
                 filtered.append(mistakes[0])
-            
+
             if not filtered:
                 return ""
+
             memories = "\n---\n".join(filtered)
             if len(memories) > 4000:
                 cutoff = memories.rfind('\n\n', 0, 4000)
@@ -142,72 +185,117 @@ class Memory:
                 memories = memories[:cutoff] + "\n\n... [TRUNCATED]"
             return f"\n\nRelevant past experience:\n{memories}\n"
 
-        # Vector search if embed_fn is available and we have embeddings
+        def _recency_bonus(created_at_str):
+            """
+            Convert an ISO-8601 `created_at` timestamp into a recency multiplier
+            in the interval (0, 1]. A memory saved *right now* returns 1.0;
+            RECENCY_HALF_LIFE_DAYS ago returns 0.5; a year ago ≈ 0.001.
+            Returns 0.5 (neutral) if the timestamp is unparseable.
+            """
+            if not created_at_str:
+                return 0.5
+            try:
+                # SQLite CURRENT_TIMESTAMP format: "YYYY-MM-DD HH:MM:SS"
+                import datetime as _dt
+                ts = _dt.datetime.strptime(created_at_str, "%Y-%m-%d %H:%M:%S")
+                age_days = (_dt.datetime.utcnow() - ts).total_seconds() / 86400.0
+                age_days = max(0.0, age_days)
+                return math.exp(-age_days * math.log(2) / RECENCY_HALF_LIFE_DAYS)
+            except Exception:
+                return 0.5
+
+        # ── Vector search (primary) ───────────────────────────────────────
         if embed_fn and rows[0][4]:
             try:
                 query_vector = np.array(embed_fn(task))
-                norm_q = np.linalg.norm(query_vector)  # Compute ONCE outside the loop
+                norm_q = np.linalg.norm(query_vector)
                 if norm_q == 0:
-                    norm_q = 1e-10  # Avoid division by zero
+                    norm_q = 1e-10
                 scores = []
-                for mem_id, t_task, doc, meta_str, emb_blob in rows:
-                    if emb_blob:
-                        emb = np.frombuffer(emb_blob, dtype=np.float32)  # Binary decode (fast)
-                        norm_e = np.linalg.norm(emb)
-                        if norm_e > 0:
-                            similarity = np.dot(query_vector, emb) / (norm_q * norm_e)
-                        else:
-                            similarity = 0
-                        scores.append((similarity, doc, meta_str))
-                
-                # Sort by similarity descending
-                scores.sort(key=lambda x: x[0], reverse=True)
-                scored_items = [item for item in scores if item[0] > 0.4] # threshold
-                if scored_items:
-                    return _prioritize_and_format(scored_items, n_results)
+                for mem_id, t_task, doc, meta_str, emb_blob, created_at in rows:
+                    if not emb_blob:
+                        continue
+                    emb = np.frombuffer(emb_blob, dtype=np.float32)
+                    norm_e = np.linalg.norm(emb)
+                    if norm_e <= 0:
+                        continue
+                    cosine = float(np.dot(query_vector, emb) / (norm_q * norm_e))
+                    if cosine < MIN_VECTOR_SCORE:
+                        # Hard-drop noise below the "genuinely related" floor.
+                        continue
+                    # Blend cosine similarity with a recency bonus so that a
+                    # slightly-less-similar but newer memory can beat an old
+                    # one on ties. Weight is deliberately small (0.15) so
+                    # semantic match still dominates.
+                    final = (1.0 - RECENCY_WEIGHT) * cosine + \
+                            RECENCY_WEIGHT * _recency_bonus(created_at)
+                    scores.append((final, doc, meta_str))
+
+                if scores:
+                    scores.sort(key=lambda x: x[0], reverse=True)
+                    return _prioritize_and_format(scores, n_results)
+                # Fall through to keyword search ONLY when vector search
+                # produced zero above-threshold hits.
             except Exception as e:
                 print(f"SQLite vector similarity search failed: {str(e)}")
 
-        # Text keyword search fallback with stopword filtering to avoid false positives
+        # ── Keyword-overlap fallback ─────────────────────────────────────
+        # Trimmed STOPWORDS: `plot`, `equation`, `theorem`, `derive`, `3d`,
+        # etc. are actually strong topical signals and should NOT be silenced.
+        # To compensate for the wider vocabulary, we require KEYWORD_MIN_MATCHES
+        # (currently 3) content-word matches — up from the old threshold of 2.
         STOPWORDS = {
-            "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren't", "as", "at", 
-            "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", 
-            "can", "can't", "cannot", "could", "couldn't", "did", "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during", 
-            "each", "few", "for", "from", "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having", "he", "he'd", 
-            "he'll", "he's", "her", "here", "here's", "hers", "herself", "him", "himself", "his", "how", "how's", 
-            "i", "i'd", "i'll", "i'm", "i've", "if", "in", "into", "is", "isn't", "it", "it's", "its", "itself", 
-            "let's", "me", "more", "most", "mustn't", "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only", 
-            "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own", "same", "shan't", "she", "she'd", 
-            "she'll", "she's", "should", "shouldn't", "so", "some", "such", "than", "that", "that's", "the", "their", 
-            "theirs", "them", "themselves", "then", "there", "there's", "these", "they", "they'd", "they'll", "they're", 
-            "they've", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "wasn't", "we", 
-            "we'd", "we'll", "we're", "we've", "were", "weren't", "what", "what's", "when", "when's", "where", "where's", 
-            "which", "while", "who", "who's", "whom", "why", "why's", "with", "won't", "would", "wouldn't", "you", 
-            # Common task-agnostic coding verbs to ignore
+            # Grammar-only stopwords
+            "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren't", "as", "at",
+            "be", "because", "been", "before", "being", "below", "between", "both", "but", "by",
+            "can", "can't", "cannot", "could", "couldn't", "did", "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during",
+            "each", "few", "for", "from", "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having", "he", "he'd",
+            "he'll", "he's", "her", "here", "here's", "hers", "herself", "him", "himself", "his", "how", "how's",
+            "i", "i'd", "i'll", "i'm", "i've", "if", "in", "into", "is", "isn't", "it", "it's", "its", "itself",
+            "let's", "me", "more", "most", "mustn't", "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only",
+            "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own", "same", "shan't", "she", "she'd",
+            "she'll", "she's", "should", "shouldn't", "so", "some", "such", "than", "that", "that's", "the", "their",
+            "theirs", "them", "themselves", "then", "there", "there's", "these", "they", "they'd", "they'll", "they're",
+            "they've", "this", "those", "through", "to", "too", "under", "until", "up", "very", "was", "wasn't", "we",
+            "we'd", "we'll", "we're", "we've", "were", "weren't", "what", "what's", "when", "when's", "where", "where's",
+            "which", "while", "who", "who's", "whom", "why", "why's", "with", "won't", "would", "wouldn't", "you",
+            # Purely task-agnostic verbs — these carry no topical signal
             "write", "code", "program", "script", "create", "make", "generate", "give", "please", "solve", "run",
-            "plot", "plots", "plotting", "3d", "2d", "verify", "verification", "mathematically", "mathematical", 
-            "equation", "equations", "function", "functions", "surface", "constant", "constants", "value", "values", 
-            "parameter", "parameters", "result", "results", "output", "show", "showing", "find", "prove", "theorem", 
-            "calculate", "derivation", "derive", "analytical", "numerical", "scenario"
+            "show", "showing", "output", "result", "results", "value", "values",
+            # NOTE: `plot`, `equation`, `theorem`, `derive`, `3d`, `numerical`,
+            # `analytical`, `verify`, `mathematical`, `function`, `surface`,
+            # `parameter`, `constant`, `find`, `calculate`, `scenario` are
+            # INTENTIONALLY NOT in stopwords — they are topical anchors.
         }
-        
-        query_words = set(w.strip(",.!?") for w in task.lower().split() if w not in STOPWORDS and len(w) > 1)
+
+        query_words = set(
+            w.strip(",.!?") for w in task.lower().split()
+            if w not in STOPWORDS and len(w) > 1
+        )
         if not query_words:
             return ""
 
         keyword_scores = []
-        for mem_id, t_task, doc, meta_str, _ in rows:
-            task_words = set(w.strip(",.!?") for w in t_task.lower().split() if w not in STOPWORDS)
-            # Find matching keywords
+        for row in rows:
+            mem_id, t_task, doc, meta_str, _emb, _created_at = row
+            task_words = set(
+                w.strip(",.!?") for w in t_task.lower().split()
+                if w not in STOPWORDS and len(w) > 1
+            )
             matches = len(query_words.intersection(task_words))
-            # Require at least 2 matching significant words, or 100% of the query terms if query is very short
-            if matches >= 2 or (len(query_words) == 1 and matches == 1):
-                keyword_scores.append((matches, doc, meta_str))
-                
+            # Require KEYWORD_MIN_MATCHES (3) overlapping content words. For
+            # short queries (1-2 content words) we still require full overlap
+            # to prevent single-word coincidences from surfacing unrelated
+            # memories as "relevant past experience".
+            if matches >= KEYWORD_MIN_MATCHES or (
+                len(query_words) <= 2 and matches == len(query_words)
+            ):
+                keyword_scores.append((float(matches), doc, meta_str))
+
         if keyword_scores:
             keyword_scores.sort(key=lambda x: x[0], reverse=True)
             return _prioritize_and_format(keyword_scores, n_results)
-            
+
         return ""
 
     def _is_duplicate(self, task):

@@ -34,16 +34,20 @@ export const renderMath = (tex, isBlock) => {
  * Handles both \\( ... \\) and $ ... $ math delimiters.
  */
 export const renderInlineElements = (text) => {
-  const inlineParts = text.split(/(\\\\\\([\\s\\S]*?\\\\\\)|\\$.*?\\$|\\*\\*.*?\\*\\*|`.*?`)/g);
+  // Split on inline math (\( ... \) or $...$), bold (**...**), or inline code (`...`).
+  // Previous pattern was over-escaped and silently matched nothing.
+  const inlineParts = text.split(/(\\\([\s\S]*?\\\)|\$[^$\n]+\$|\*\*[^*\n]+\*\*|`[^`\n]+`)/g);
   return inlineParts.map((chunk, index) => {
+    if (chunk == null || chunk === "") return null;
     if (chunk.startsWith("\\(") && chunk.endsWith("\\)")) {
       return <React.Fragment key={index}>{renderMath(chunk.slice(2, -2).trim(), false)}</React.Fragment>;
     }
-    if (chunk.startsWith("$") && chunk.endsWith("$")) {
+    if (chunk.startsWith("$") && chunk.endsWith("$") && chunk.length > 2) {
       const content = chunk.slice(1, -1).trim();
-      const commonWords = /\b(and|or|the|a|an|of|to|in|is|that|it|costs|buy|price|each|for|with|at|from|by|on|this|that|these|those)\b/i;
-      const isCurrency = /^\d+(\.\d{2})?$/;
-      if (commonWords.test(content) || isCurrency.test(content)) {
+      // Only treat as math if it contains at least one math-y token, and is not plain currency/prose.
+      const mathTokens = /[=+\-*/^_{}\\]|\\frac|\\sqrt|\\int|\\sum|\\alpha|\\beta|\\gamma|\\theta|\\pi|\\lambda|\\mu|\\sigma/;
+      const isCurrency = /^\d+(\.\d{1,2})?$/;
+      if (isCurrency.test(content) || !mathTokens.test(content)) {
         return chunk;
       }
       return <React.Fragment key={index}>{renderMath(content, false)}</React.Fragment>;
@@ -63,7 +67,8 @@ export const renderInlineElements = (text) => {
  * block math, headings, lists, horizontal rules, paragraphs.
  */
 export const parseAndRenderSegment = (segment) => {
-  const parts = segment.split(/(\\\\\\[[\s\S]*?\\\\\\]|\$\$[\s\S]*?\$\$)/g);
+  // Split on block math \[ ... \] or $$ ... $$. Previous pattern was over-escaped.
+  const parts = segment.split(/(\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$)/g);
   return parts.map((part, index) => {
     if (part.startsWith("\\[") && part.endsWith("\\]")) {
       const tex = part.slice(2, -2).trim();
@@ -143,7 +148,7 @@ export const splitSpecialSegments = (text) => {
     const candidates = [
       { idx: plotlyIdx, type: "plotly", open: "<!--PLOTLY_JSON-->", close: "<!--/PLOTLY_JSON-->" },
       { idx: htmlIdx, type: "html", open: "<!--ARTIFACT_HTML-->", close: "<!--/ARTIFACT_HTML-->" },
-      { idx: metricsIdx, type: "metrics", open: "=== PREDICTIVE_METRICS ===", close: "==========================" },
+      { idx: metricsIdx, type: "metrics", open: "=== PREDICTIVE_METRICS ===", close: "=== /PREDICTIVE_METRICS ===" },
     ].filter((c) => c.idx !== -1);
 
     if (candidates.length === 0) {

@@ -5,6 +5,11 @@ import os
 import re
 import shutil
 import textwrap
+import json
+import signal
+import shlex
+import tokenize
+import io as _io_top
 
 # GUI libraries that will always hang in a headless sandbox
 GUI_SIGNATURES = [
@@ -132,6 +137,14 @@ RESTRICTED_RUNNER_TEMPLATE = textwrap.dedent(r'''
 import sys
 import io
 import json
+import os as _os_module
+
+# ── Capture privileged builtins BEFORE we install the restricted layer ───
+# These are the only handles we keep to the real, unrestricted primitives.
+# The user code will NEVER see these names.
+_REAL_OPEN = open
+_REAL_COMPILE = compile
+_REAL_EXEC = exec
 
 # ── Step 1: Set Resource Limits (Linux only) ─────────────────────────────
 try:
@@ -149,11 +162,22 @@ except Exception:
     pass  # Non-Linux systems skip resource limits
 
 # ── Step 1.5: Hard Block Network Access ──────────────────────────────────
-import socket
-class BlockedSocket:
-    def __init__(self, *args, **kwargs):
-        raise PermissionError("Network access is strictly forbidden in the sandbox.")
-socket.socket = BlockedSocket
+import socket as _socket_module
+
+def _blocked_net(*args, **kwargs):
+    raise PermissionError("Network access is strictly forbidden in the sandbox.")
+
+# Block every entrypoint into the network stack, not just socket.socket()
+_socket_module.socket = _blocked_net
+_socket_module.create_connection = _blocked_net
+_socket_module.create_server = _blocked_net
+if hasattr(_socket_module, 'socketpair'):
+    _socket_module.socketpair = _blocked_net
+if hasattr(_socket_module, 'fromfd'):
+    _socket_module.fromfd = _blocked_net
+# Also gate getaddrinfo so DNS lookups fail fast
+_socket_module.getaddrinfo = _blocked_net
+_socket_module.gethostbyname = _blocked_net
 
 # ── Step 2: Define the Whitelist of Safe Modules ─────────────────────────
 ALLOWED_MODULES = {
@@ -188,21 +212,34 @@ ALLOWED_MODULES = {
     'Bio', 'rdkit',
     # Quantum Physics & Rocket Dynamics
     'rocketpy', 'qiskit', 'qutip',
-    # Cybersecurity & Cryptography / Network Simulation
-    'cryptography', 'scapy', 'jwt', 'pyjwt', 'Crypto', 'jose',
-    # Web & API requests (for real-time weather and stock prediction data)
-    'requests', 'urllib', 'http',
+    # Cybersecurity & Cryptography (pure-crypto only — no network)
+    'cryptography', 'jwt', 'pyjwt', 'Crypto', 'jose',
+    # 'socket' is whitelisted ONLY so that any code touching it reaches our
+    # monkey-patched entrypoints (which raise PermissionError). Without this,
+    # `import socket` would raise _WhitelistBlockedImport, which the parent
+    # process interprets as "legitimate dependency missing" and retries in
+    # the UNRESTRICTED sandbox — completely defeating the network block.
+    'socket',
+    # NOTE: 'requests', 'urllib', 'http', 'scapy' are intentionally REMOVED.
+    # The restricted sandbox forbids network I/O. Use SandboxDataHelper for
+    # deterministic mock stock/weather data instead of live HTTP calls.
 }
 
 # ── Step 3: Create the Restricted Import Function ────────────────────────
 _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+
+# Sentinel class so we can distinguish a whitelist miss (legitimate fallback
+# candidate) from a real PermissionError raised by the network kill-switch
+# (which must NEVER be silently promoted to the unrestricted sandbox).
+class _WhitelistBlockedImport(ImportError):
+    pass
 
 def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     """Custom import that only allows whitelisted modules."""
     # Get the top-level module name
     top_module = name.split('.')[0]
     if top_module not in ALLOWED_MODULES:
-        raise ImportError(
+        raise _WhitelistBlockedImport(
             f"🔒 SANDBOX BLOCKED: Module '{name}' is not allowed in the restricted sandbox.\n"
             f"   Allowed modules: {', '.join(sorted(ALLOWED_MODULES))}"
         )
@@ -242,9 +279,12 @@ safe_builtins['__name__'] = '__main__'
 captured_stdout = io.StringIO()
 captured_stderr = io.StringIO()
 
-# Read the AI code from the temp file
+# Read the AI code from the temp file using the REAL open we captured before
+# the restricted layer was installed. Using _real_import('builtins').open
+# would let malicious code re-obtain a real 'open' by re-invoking the same
+# trick from inside exec() — we close that hole here.
 code_path = sys.argv[1]
-with _real_import('builtins').open(code_path, 'r') as f:
+with _REAL_OPEN(code_path, 'r') as f:
     user_code = f.read()
 
 # ── Step 4.5: Inject Sandbox Data Helper & API Keys ──────────────────────
@@ -254,6 +294,11 @@ os.environ["OPENWEATHER_KEY"] = "demo_weather_key_991823ab"
 os.environ["COINGECKO_KEY"] = "demo_crypto_key_aa11b239"
 
 class SandboxDataHelper:
+    # NOTE: This helper returns DETERMINISTIC SYNTHETIC data (fixed random seed).
+    # It is NOT a real market/weather feed. Callers must label any downstream
+    # analysis as "simulated" to avoid hallucinating factual claims.
+    IS_SYNTHETIC = True
+
     @staticmethod
     def get_stock_data(symbol, period="1y"):
         try:
@@ -328,20 +373,37 @@ sys.stderr = captured_stderr
 result = {"success": False, "output": "", "error": "", "restricted": True}
 
 try:
-    # This is the core: exec() runs the AI code in the restricted namespace
-    compiled_code = _real_import('builtins').__import__('builtins').compile(user_code, '<sandbox>', 'exec')
-    exec(compiled_code, restricted_globals)
+    # This is the core: exec() runs the AI code in the restricted namespace.
+    # Compile with the REAL compile() captured at runner startup — do NOT use
+    # _real_import('builtins').compile because leaking a handle to `builtins`
+    # via the restricted __import__ was the historical escape path.
+    compiled_code = _REAL_COMPILE(user_code, '<sandbox>', 'exec')
+    _REAL_EXEC(compiled_code, restricted_globals)
     result["success"] = True
     result["output"] = captured_stdout.getvalue()
     if captured_stderr.getvalue():
         result["output"] += "\nWarnings/Stderr:\n" + captured_stderr.getvalue()
-except (ImportError, PermissionError) as e:
-    # Module was blocked or network was accessed — signal the caller to retry with unrestricted mode
+except _WhitelistBlockedImport as e:
+    # A whitelist miss is the ONLY condition under which the parent process
+    # is allowed to retry in the unrestricted sandbox.
     result["success"] = False
     result["error"] = str(e)
     result["restricted_block"] = True
+except PermissionError as e:
+    # PermissionError comes from the network kill-switch (or a future
+    # filesystem guard). This is a hard security failure — do NOT set
+    # restricted_block, so the parent will NOT fall back to unrestricted.
+    result["success"] = False
+    result["error"] = f"PermissionError (sandbox policy): {e}"
+    result["policy_violation"] = True
 except MemoryError:
     result["error"] = "MemoryError: Code exceeded the 2 GB sandbox RAM limit."
+except ImportError as e:
+    # A genuine ImportError from real code (e.g. optional dep missing) is
+    # allowed to fall back — user code was well-formed, dependency was not.
+    result["success"] = False
+    result["error"] = str(e)
+    result["restricted_block"] = True
 except Exception as e:
     result["error"] = f"{type(e).__name__}: {str(e)}"
 finally:
@@ -411,17 +473,144 @@ class Sandbox:
                 return sig
         return None
 
+    @staticmethod
+    def _strip_python_strings_and_comments(code):
+        """
+        Return `code` with all Python string literals and comments replaced by
+        equivalent-length whitespace. Line numbers are preserved so that any
+        downstream error reporting remains accurate.
+
+        Used by `_detect_infinite_loop` so that a benign string like
+        `"while(1)"` or a `# while True` comment does not trigger a false
+        positive. Falls back to the original `code` if tokenize can't parse it
+        (e.g. the code is incomplete or is not actually Python).
+        """
+        try:
+            tokens = list(tokenize.generate_tokens(_io_top.StringIO(code).readline))
+        except (tokenize.TokenizeError, IndentationError, SyntaxError):
+            return code
+
+        # We rebuild the source line-by-line, blanking out ranges that belong
+        # to STRING or COMMENT tokens.
+        lines = code.splitlines(keepends=True)
+        # Convert to a mutable list of char arrays
+        mut_lines = [list(line) for line in lines]
+
+        for tok in tokens:
+            if tok.type not in (tokenize.STRING, tokenize.COMMENT):
+                continue
+            (start_row, start_col) = tok.start
+            (end_row, end_col) = tok.end
+            # tokenize rows are 1-indexed
+            start_row -= 1
+            end_row -= 1
+            if start_row == end_row:
+                if 0 <= start_row < len(mut_lines):
+                    row = mut_lines[start_row]
+                    for c in range(start_col, min(end_col, len(row))):
+                        if row[c] != '\n':
+                            row[c] = ' '
+            else:
+                # Multi-line string — blank the tail of start_row, all of the
+                # middle rows, and the head of end_row.
+                if 0 <= start_row < len(mut_lines):
+                    row = mut_lines[start_row]
+                    for c in range(start_col, len(row)):
+                        if row[c] != '\n':
+                            row[c] = ' '
+                for r in range(start_row + 1, end_row):
+                    if 0 <= r < len(mut_lines):
+                        row = mut_lines[r]
+                        for c in range(len(row)):
+                            if row[c] != '\n':
+                                row[c] = ' '
+                if 0 <= end_row < len(mut_lines):
+                    row = mut_lines[end_row]
+                    for c in range(min(end_col, len(row))):
+                        if row[c] != '\n':
+                            row[c] = ' '
+
+        return ''.join(''.join(row) for row in mut_lines)
+
     def _detect_infinite_loop(self, code):
-        """Check if the code contains patterns that suggest an infinite loop."""
+        """
+        Check if the code contains patterns that suggest an infinite loop.
+
+        Only inspects executable source — strings and comments are stripped
+        first so that e.g. `msg = "while(1)"` or `# while True: forever` no
+        longer trigger false positives.
+        """
+        scrubbed = self._strip_python_strings_and_comments(code)
         for pattern in LOOP_PATTERNS:
-            if re.search(pattern, code, re.IGNORECASE):
+            if re.search(pattern, scrubbed, re.IGNORECASE):
                 return pattern
         return None
+
+    # ── Subprocess runner that guarantees the entire process group dies ──
+    @staticmethod
+    def _run_with_kill(cmd, timeout, cwd=None, env=None):
+        """
+        Drop-in replacement for `subprocess.run(cmd, timeout=timeout, ...)`
+        that (a) launches the child in its own session so we control the
+        whole process group, and (b) SIGKILLs the group if the timeout fires
+        — killing grandchildren too (numpy/pandas worker pools, npm
+        sub-shells, node children, javac daemons, etc.).
+
+        Returns a `subprocess.CompletedProcess`-like object with `.returncode`,
+        `.stdout`, `.stderr`. Raises `subprocess.TimeoutExpired` on timeout,
+        AFTER the process group has been fully killed.
+        """
+        # start_new_session=True is the POSIX way to say "new process group
+        # with the child as leader". On Windows this arg is ignored and we
+        # fall back to plain terminate(); Windows isn't a target platform for
+        # the restricted sandbox anyway.
+        popen_kwargs = dict(
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+            text=True,
+        )
+        if os.name == 'posix':
+            popen_kwargs['start_new_session'] = True
+
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=proc.returncode,
+                stdout=stdout, stderr=stderr,
+            )
+        except subprocess.TimeoutExpired:
+            # Kill the entire process group so orphaned grandchildren die too.
+            if os.name == 'posix':
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            else:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            # Drain stdout/stderr so the pipes don't leak; ignore any errors.
+            try:
+                proc.communicate(timeout=2)
+            except Exception:
+                pass
+            raise
 
     def _detect_language(self, code):
         """
         Auto-detect the programming language of the code using heuristic signature matching.
-        Returns one of: 'python', 'c', 'cpp', 'bash', 'javascript', 'java'
+        Returns one of: 'python', 'c', 'cpp', 'bash', 'javascript', 'java', 'go', 'rust', 'typescript'.
+
+        Improvements over the previous version:
+        - Requires a MINIMUM of 2 signature hits (or a decisive lead) before
+          committing to a non-Python guess. This prevents e.g. a stray `def foo(`
+          in JS code from being misclassified as Python, or a lone `printf(`
+          in Python (via ctypes) from being classified as C.
+        - Ties are broken by looking for language-exclusive tokens.
         """
         scores = {}
         for lang, sigs in LANG_SIGNATURES.items():
@@ -431,17 +620,26 @@ class Sandbox:
                     score += 1
             scores[lang] = score
 
-        # C vs C++ disambiguation: if both match, check for C++-only features
+        # C vs C++ disambiguation: any C++-only token wins
         if scores.get('c', 0) > 0 and scores.get('cpp', 0) > 0:
-            if scores['cpp'] >= scores['c']:
-                scores['c'] = 0  # It's C++, not C
+            if re.search(r'std::|iostream|using\s+namespace\s+std|cout\s*<<', code):
+                scores['c'] = 0
+            elif scores['cpp'] >= scores['c']:
+                scores['c'] = 0
 
-        # Find the language with the highest score
-        best_lang = max(scores, key=scores.get) if scores else None
-        best_score = scores.get(best_lang, 0) if best_lang else 0
+        # TypeScript vs JavaScript: TS-exclusive markers beat plain JS
+        if scores.get('typescript', 0) > 0 and scores.get('javascript', 0) > 0:
+            if re.search(r'\binterface\s+\w+\b|\btype\s+\w+\s*=|:\s*\w+\s*[=,)]', code):
+                scores['javascript'] = 0
 
-        # If no strong match, default to Python
-        if best_score == 0:
+        best_lang = max(scores, key=scores.get) if scores else 'python'
+        best_score = scores.get(best_lang, 0)
+
+        # Require decisive evidence: at least 2 signatures OR a clear lead of 2
+        # over the runner-up. Otherwise default to Python (our primary sandbox).
+        sorted_scores = sorted(scores.values(), reverse=True)
+        runner_up = sorted_scores[1] if len(sorted_scores) > 1 else 0
+        if best_score < 2 and (best_score - runner_up) < 2:
             return 'python'
         return best_lang
 
@@ -475,9 +673,7 @@ class Sandbox:
         ]
 
         try:
-            comp_res = subprocess.run(
-                compile_cmd, capture_output=True, text=True, timeout=30
-            )
+            comp_res = self._run_with_kill(compile_cmd, timeout=30)
             if comp_res.returncode != 0:
                 return False, f"Compilation Error:\n{comp_res.stderr.strip()}"
         except subprocess.TimeoutExpired:
@@ -496,9 +692,7 @@ class Sandbox:
             run_cmd = [s.replace('{bin}', bin_path) for s in lang_config['run']]
 
         try:
-            res = subprocess.run(
-                run_cmd, capture_output=True, text=True, timeout=self.timeout
-            )
+            res = self._run_with_kill(run_cmd, timeout=self.timeout)
             if res.returncode == 0:
                 output = res.stdout
                 if res.stderr:
@@ -508,7 +702,7 @@ class Sandbox:
                 error = res.stderr if res.stderr else res.stdout
                 return False, f"Runtime Error:\n{error.strip()}"
         except subprocess.TimeoutExpired:
-            return False, f"TimeoutError: Execution took longer than {self.timeout}s."
+            return False, f"TimeoutError: Execution took longer than {self.timeout}s (process group killed)."
 
     def _execute_interpreted(self, code, lang_config, language):
         """
@@ -529,9 +723,7 @@ class Sandbox:
 
         try:
             run_cmd = [s.replace('{src}', path) for s in lang_config['run']]
-            res = subprocess.run(
-                run_cmd, capture_output=True, text=True, timeout=self.timeout
-            )
+            res = self._run_with_kill(run_cmd, timeout=self.timeout)
             if res.returncode == 0:
                 output = res.stdout
                 if res.stderr:
@@ -541,7 +733,7 @@ class Sandbox:
                 error = res.stderr if res.stderr else res.stdout
                 return False, error.strip()
         except subprocess.TimeoutExpired:
-            return False, f"TimeoutError: Code took longer than {self.timeout}s to execute."
+            return False, f"TimeoutError: Code took longer than {self.timeout}s to execute (process group killed)."
         finally:
             if os.path.exists(path):
                 os.unlink(path)
@@ -654,12 +846,13 @@ class Sandbox:
         runner_path = runner_file.name
 
         try:
-            # Execute the runner script, passing the code file path as argv[1]
-            res = subprocess.run(
+            # Execute the runner script, passing the code file path as argv[1].
+            # Use _run_with_kill so that any child processes spawned by the
+            # AI code (numpy pool, subprocess.Popen calls the AI made, etc.)
+            # are SIGKILL'd along with the runner on timeout.
+            res = self._run_with_kill(
                 [sys.executable, runner_path, code_path],
-                capture_output=True,
-                text=True,
-                timeout=self.timeout
+                timeout=self.timeout,
             )
 
             # Parse the JSON result from the runner
@@ -753,12 +946,7 @@ class Sandbox:
             path = f.name
 
         try:
-            res = subprocess.run(
-                [sys.executable, path],
-                capture_output=True,
-                text=True,
-                timeout=self.timeout
-            )
+            res = self._run_with_kill([sys.executable, path], timeout=self.timeout)
             if res.returncode == 0:
                 output = self._strip_ansi(res.stdout)
                 if res.stderr:
@@ -770,10 +958,7 @@ class Sandbox:
 
                 # ── Auto-pip: Install missing modules and retry once ──────
                 if 'ModuleNotFoundError' in error_str and self._auto_install_missing_module(error_str):
-                    res2 = subprocess.run(
-                        [sys.executable, path],
-                        capture_output=True, text=True, timeout=self.timeout
-                    )
+                    res2 = self._run_with_kill([sys.executable, path], timeout=self.timeout)
                     if res2.returncode == 0:
                         output2 = self._strip_ansi(res2.stdout)
                         if res2.stderr:
@@ -838,44 +1023,103 @@ class Sandbox:
                     pass
         return files
 
+    # ── execute_workspace hardening constants ────────────────────────────
+    # Per-file and total size caps prevent a malicious/malformed manifest
+    # from filling the host's temp partition.
+    _MAX_FILE_BYTES = 5 * 1024 * 1024      #  5 MB per file
+    _MAX_TOTAL_BYTES = 200 * 1024 * 1024   # 200 MB per workspace
+
+    # Allow-list of executables that `run_cmd` is permitted to invoke. Any
+    # other binary will be refused before we hand it to Popen. This is a
+    # defense-in-depth measure — the sandbox already runs in a temp dir with
+    # no privileges, but this makes accidental `rm -rf /` in a validation
+    # script much harder.
+    _RUN_CMD_ALLOWLIST = {
+        'npm', 'npx', 'node',
+        sys.executable, 'python', 'python3',
+        'pip', 'pip3',
+        'pytest', 'ruff', 'mypy', 'black',
+        'go', 'cargo', 'rustc',
+        'gcc', 'g++', 'clang', 'clang++', 'make',
+        'bash', 'sh',
+        'javac', 'java',
+    }
+
     def execute_workspace(self, files_dict, run_cmd=None, timeout=120):
         """
         Executes a full workspace-level project directory.
-        Writes all files, installs dependencies (like npm install),
-        runs validation (like npm run build), and returns (success, logs, temp_dir_path).
-        """
-        import tempfile
-        import shutil
-        import json
 
+        Security hardening (Phase 1.6b / bug #14):
+        - Path-traversal check uses `os.path.realpath` (symlink-aware), not
+          `os.path.abspath` (which was symlink-blind and could be tricked by
+          a symlink placed earlier in the manifest).
+        - Per-file size cap of {_MAX_FILE_BYTES} and total size cap of
+          {_MAX_TOTAL_BYTES} prevent temp-partition exhaustion.
+        - `run_cmd` is parsed with `shlex.split` (correct quoting) and the
+          executable is checked against `_RUN_CMD_ALLOWLIST` before Popen.
+        - All subprocesses go through `_run_with_kill` so timeouts SIGKILL
+          the entire process group instead of orphaning grandchildren.
+
+        Returns (success: bool, logs: str, temp_dir_path: str).
+        """
         temp_dir = tempfile.mkdtemp(prefix="workspace_sandbox_")
         output_log = []
         success = True
+        temp_dir_real = os.path.realpath(temp_dir)
 
         try:
-            # 1. Write all files to the temporary directory
+            # 1. Write all files to the temporary directory — with hardening.
+            total_written = 0
+            written_count = 0
             for rel_path, content in files_dict.items():
-                dest_path = os.path.abspath(os.path.join(temp_dir, rel_path))
-                # Prevent path traversal attacks escaping the temp dir
-                if not dest_path.startswith(os.path.abspath(temp_dir)):
+                # Reject absolute paths and any component containing '..' or
+                # a null byte before we even join.
+                if os.path.isabs(rel_path) or '\x00' in rel_path:
+                    output_log.append(f"⚠️  Refused unsafe path: {rel_path!r}")
                     continue
-                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                with open(dest_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
 
-            output_log.append(f"📁 Created workspace with {len(files_dict)} files.")
+                dest_path = os.path.join(temp_dir, rel_path)
+                # `realpath` resolves symlinks *and* '..' components — this is
+                # what closes the traversal hole.
+                dest_real = os.path.realpath(dest_path)
+                if not (dest_real == temp_dir_real or dest_real.startswith(temp_dir_real + os.sep)):
+                    output_log.append(f"⚠️  Refused traversal attempt: {rel_path!r}")
+                    continue
+
+                # Enforce size caps
+                content_bytes = content.encode('utf-8', errors='replace') if isinstance(content, str) else bytes(content)
+                if len(content_bytes) > self._MAX_FILE_BYTES:
+                    output_log.append(
+                        f"⚠️  Refused oversize file {rel_path!r}: "
+                        f"{len(content_bytes):,} bytes > cap {self._MAX_FILE_BYTES:,}"
+                    )
+                    continue
+                if total_written + len(content_bytes) > self._MAX_TOTAL_BYTES:
+                    output_log.append(
+                        f"⚠️  Workspace exceeded total size cap of {self._MAX_TOTAL_BYTES:,} bytes; "
+                        f"stopping at {written_count} files."
+                    )
+                    break
+
+                os.makedirs(os.path.dirname(dest_real) or temp_dir, exist_ok=True)
+                with open(dest_real, 'wb') as f:
+                    f.write(content_bytes)
+                total_written += len(content_bytes)
+                written_count += 1
+
+            output_log.append(
+                f"📁 Created workspace with {written_count} files "
+                f"({total_written:,} bytes)."
+            )
 
             # 2. Node.js project handling (npm install)
             if 'package.json' in files_dict:
                 output_log.append("📦 package.json detected. Installing dependencies via npm...")
                 try:
-                    # Run npm install without audit warnings or fund prints to keep stdout clean
-                    install_res = subprocess.run(
+                    install_res = self._run_with_kill(
                         ['npm', 'install', '--no-audit', '--no-fund', '--prefer-offline'],
                         cwd=temp_dir,
-                        capture_output=True,
-                        text=True,
-                        timeout=90
+                        timeout=90,
                     )
                     if install_res.stdout:
                         output_log.append(install_res.stdout)
@@ -887,7 +1131,7 @@ class Sandbox:
                         return False, "\n".join(output_log), temp_dir
                 except subprocess.TimeoutExpired:
                     success = False
-                    output_log.append("❌ npm install timed out after 90s.")
+                    output_log.append("❌ npm install timed out after 90s (process group killed).")
                     return False, "\n".join(output_log), temp_dir
                 except Exception as e:
                     success = False
@@ -913,32 +1157,42 @@ class Sandbox:
             elif 'requirements.txt' in files_dict:
                 output_log.append("🐍 requirements.txt detected. Installing packages...")
                 try:
-                    install_res = subprocess.run(
+                    install_res = self._run_with_kill(
                         [sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--quiet'],
                         cwd=temp_dir,
-                        capture_output=True,
-                        text=True,
-                        timeout=90
+                        timeout=90,
                     )
                     if install_res.stdout:
                         output_log.append(install_res.stdout)
                     if install_res.stderr:
                         output_log.append(f"Pip stderr:\n{install_res.stderr}")
+                except subprocess.TimeoutExpired:
+                    output_log.append("⚠️ pip install timed out after 90s (process group killed).")
                 except Exception as e:
                     output_log.append(f"⚠️ pip install failed: {str(e)}")
 
-            # 5. Run validation script
+            # 5. Run validation script (with shlex parsing + allowlist gate)
             if run_cmd:
                 output_log.append(f"🚀 Running workspace execution: `{run_cmd}`")
                 try:
-                    cmd_args = run_cmd.split()
-                    run_res = subprocess.run(
-                        cmd_args,
-                        cwd=temp_dir,
-                        capture_output=True,
-                        text=True,
-                        timeout=timeout
+                    cmd_args = shlex.split(run_cmd)
+                except ValueError as e:
+                    return False, "\n".join(output_log + [f"❌ Malformed run_cmd: {e}"]), temp_dir
+
+                if not cmd_args:
+                    output_log.append("❌ run_cmd was empty after parsing.")
+                    return False, "\n".join(output_log), temp_dir
+
+                executable = os.path.basename(cmd_args[0])
+                if executable not in self._RUN_CMD_ALLOWLIST and cmd_args[0] not in self._RUN_CMD_ALLOWLIST:
+                    output_log.append(
+                        f"❌ Refused disallowed executable `{cmd_args[0]}`. "
+                        f"Allowed: {sorted(self._RUN_CMD_ALLOWLIST)}"
                     )
+                    return False, "\n".join(output_log), temp_dir
+
+                try:
+                    run_res = self._run_with_kill(cmd_args, cwd=temp_dir, timeout=timeout)
                     if run_res.stdout:
                         output_log.append(run_res.stdout)
                     if run_res.stderr:
@@ -950,7 +1204,7 @@ class Sandbox:
                         output_log.append(f"✅ Command `{run_cmd}` completed successfully.")
                 except subprocess.TimeoutExpired:
                     success = False
-                    output_log.append(f"❌ Command `{run_cmd}` timed out after {timeout}s.")
+                    output_log.append(f"❌ Command `{run_cmd}` timed out after {timeout}s (process group killed).")
                 except Exception as e:
                     success = False
                     output_log.append(f"❌ Execution failed: {str(e)}")

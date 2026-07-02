@@ -173,12 +173,49 @@ async def fetch_real_dataset(category: str) -> List[Dict[str, Any]]:
         elif category == "MuSR (PhD Logic)":
             dataset = load_dataset("cais/musr", "murder_mystery", split="test")
             add_log(f"Successfully loaded MuSR Murder Mystery logic dataset ({len(dataset)} items).")
-            return [{"id": f"MuSR/{i}", "prompt": item["narrative"] + "\nQuestion: " + item["question"], "answer": item["answer"]} for i, item in enumerate(dataset)]
-            
+            # MuSR schema uses: narrative, question, choices, answer_index, answer_choice
+            # Older code used "narrative"/"question"/"answer" which fails on newer releases.
+            # Build the prompt defensively so we never KeyError on schema drift.
+            out = []
+            for i, item in enumerate(dataset):
+                narrative = item.get("narrative") or item.get("context") or ""
+                question = item.get("question") or item.get("question_text") or ""
+                choices = item.get("choices") or item.get("options") or []
+                # Resolve the ground-truth answer text from whichever field the dataset exposes
+                ans = (
+                    item.get("answer_choice")
+                    or item.get("answer")
+                    or (choices[item["answer_index"]] if "answer_index" in item and choices else None)
+                    or ""
+                )
+                choices_text = ""
+                if choices:
+                    choices_text = "\nChoices:\n" + "\n".join(
+                        f"{chr(65 + j)}) {c}" for j, c in enumerate(choices)
+                    )
+                out.append({
+                    "id": f"MuSR/{i}",
+                    "prompt": f"{narrative}\n\nQuestion: {question}{choices_text}",
+                    "answer": str(ans),
+                })
+            return out
+
         elif category == "MMLU-Pro (Prof STEM)":
             dataset = load_dataset("TIGER-Lab/MMLU-Pro", split="test")
             add_log(f"Successfully loaded MMLU-Pro dataset ({len(dataset)} items).")
-            return [{"id": f"MMLU-Pro/{i}", "prompt": item["question"] + "\nOptions: " + str(item["options"]), "answer": item["answer"]} for i, item in enumerate(dataset)]
+            # Format options as "A) foo\nB) bar" (not str(list)) so the model can
+            # cleanly cite a letter. The 'answer' field on MMLU-Pro is already the
+            # letter (e.g. "C"), so we keep it verbatim for grading.
+            out = []
+            for i, item in enumerate(dataset):
+                opts = item.get("options") or []
+                opts_text = "\n".join(f"{chr(65 + j)}) {o}" for j, o in enumerate(opts))
+                out.append({
+                    "id": f"MMLU-Pro/{i}",
+                    "prompt": f"{item['question']}\n\nOptions:\n{opts_text}",
+                    "answer": str(item.get("answer", "")),
+                })
+            return out
             
         elif category == "SWE-bench Lite":
             dataset = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
@@ -277,8 +314,10 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                 # 2. Append the hidden unit tests from the dataset
                 # 3. Call check(entry_point) to physically trigger all assertions
                 # 4. Grade based on sandbox exit code (0 = PASS, non-zero = FAIL)
+                # `re` is used both by the code-eval branch and the answer-match
+                # branch below, so import it once at the top of the try.
+                import re
                 if "test" in problem and problem["test"] and category in ["HumanEval", "MBPP"]:
-                    import re
                     entry_point = problem.get("entry_point", "")
                     
                     # Extract all ```python code blocks from the AI's markdown response
@@ -354,7 +393,19 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                         expected_answer = str(problem["answer"]).strip().lower()
                         if "####" in expected_answer:
                             expected_answer = expected_answer.split("####")[-1].strip()
-                        success = expected_answer in response.lower()
+                        # Word-boundary match on numeric answers so "60" doesn't
+                        # spuriously match inside "1600" / "60000" / "$260". For
+                        # non-numeric answers, keep the tolerant substring check.
+                        resp_lower = response.lower()
+                        expected_clean = expected_answer.replace(",", "").replace("$", "").strip()
+                        if expected_clean and re.fullmatch(r"-?\d+(?:\.\d+)?", expected_clean):
+                            # Normalize response too: strip commas/currency
+                            resp_clean = re.sub(r"[,$]", "", resp_lower)
+                            success = re.search(
+                                rf"(?<!\d){re.escape(expected_clean)}(?!\d)", resp_clean
+                            ) is not None
+                        else:
+                            success = expected_answer in resp_lower
                     else:
                         lower_resp = response.lower()
                         has_error = any(err in lower_resp for err in [
@@ -367,8 +418,10 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                     
                 generated_tokens = len(response) // 4
             except Exception as e:
-                add_log(f"[Worker {worker_id}] Error running {problem['id']}: {str(e)}")
-                use_simulation = True
+                # REAL-RUN ERROR: mark the task as FAILED — never fall back to
+                # simulated (random) grading, which would fabricate fake scores.
+                add_log(f"[Worker {worker_id}] ❌ Error running {problem['id']}: {str(e)} — marked as FAILED (no simulation fallback)")
+                success = False
         else:
             use_simulation = True
 
@@ -424,12 +477,27 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
             BENCHMARK_STATE["passed"] += 1
         else:
             BENCHMARK_STATE["failed"] += 1
-            
+
         # Update metrics
         total_finished = BENCHMARK_STATE["passed"] + BENCHMARK_STATE["failed"]
-        BENCHMARK_STATE["accuracy"] = round((BENCHMARK_STATE["passed"] / total_finished) * 100, 1)
-        BENCHMARK_STATE["tokens_per_sec"] = round(((BENCHMARK_STATE["tokens_per_sec"] * (total_finished - 1)) + tps) / total_finished, 1)
-        BENCHMARK_STATE["avg_latency"] = round(((BENCHMARK_STATE["avg_latency"] * (total_finished - 1)) + latency) / total_finished, 1)
+        BENCHMARK_STATE["accuracy"] = round(
+            (BENCHMARK_STATE["passed"] / total_finished) * 100, 1
+        )
+        # Track counters used for correct incremental means. We only average
+        # throughput/latency across tasks that actually produced tokens; a task
+        # that errored out with generated_tokens=0 would otherwise drag t/s
+        # toward zero and misrepresent hardware performance.
+        if generated_tokens > 0 and latency > 0:
+            n = BENCHMARK_STATE.get("_metric_samples", 0) + 1
+            prev_tps = BENCHMARK_STATE["tokens_per_sec"]
+            prev_lat = BENCHMARK_STATE["avg_latency"]
+            BENCHMARK_STATE["tokens_per_sec"] = round(
+                (prev_tps * (n - 1) + tps) / n, 1
+            )
+            BENCHMARK_STATE["avg_latency"] = round(
+                (prev_lat * (n - 1) + latency) / n, 2
+            )
+            BENCHMARK_STATE["_metric_samples"] = n
         
         # Reset worker status
         BENCHMARK_STATE["workers"][worker_id]["status"] = "Idle"
@@ -449,6 +517,10 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
     update_state("tokens_per_sec", 0.0)
     update_state("avg_latency", 0.0)
     update_state("elapsed_seconds", 0.0)
+    with STATE_LOCK:
+        # Reset the private metric-samples counter so consecutive benchmark
+        # runs don't blend their throughput/latency means together.
+        BENCHMARK_STATE["_metric_samples"] = 0
     try:
         import torch
         if torch.cuda.is_available():
@@ -475,8 +547,26 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
         num_workers = max(1, cpu_count // 4)
         hardware_name = f"TPU v5e-8 Host CPU (x{num_workers} Workers on {cpu_count} Cores)"
 
+    # ── Accuracy Booster toggle (benchmark-only) ─────────────────────────
+    # Numeric math/logic benchmarks benefit from PAL + self-consistency
+    # voting. Enable the opt-in Accuracy Booster on the orchestrator for
+    # these categories, and restore the previous value after the run so
+    # interactive chat behaviour is never altered.
+    _accuracy_boost_categories = {
+        "GSM8K", "MATH", "AIME (Olympiad Logic)"
+    }
+    _prev_accuracy_boost = None
+    if orchestrator is not None and hasattr(orchestrator, "accuracy_boost"):
+        _prev_accuracy_boost = getattr(orchestrator, "accuracy_boost", False)
+        if category in _accuracy_boost_categories:
+            orchestrator.accuracy_boost = True
+            add_log(f"⚡ Accuracy Booster ENABLED for {category} (PAL + self-consistency).")
+        else:
+            orchestrator.accuracy_boost = False
+
     # Nuclear Option: Proactively unload all models from VRAM to make room for the benchmark!
     if orchestrator and hasattr(orchestrator, "unload_all_models"):
+
         try:
             add_log("🧹 Pre-benchmark memory flush: Evicting all loaded chat models from VRAM...")
             orchestrator.unload_all_models()
@@ -498,11 +588,19 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
         update_state("active", False)
         return
         
-    # Cap dataset to requested sample size
-    if sample_size < len(problems):
+    # Cap dataset to requested sample size. Clamp defensively so callers can
+    # pass any positive integer without triggering ValueError from random.sample
+    # when the dataset happens to be smaller than the requested sample.
+    effective_size = max(1, min(int(sample_size or 0) or len(problems), len(problems)))
+    if effective_size < len(problems):
         random.seed(42)  # Deterministic sampling
-        problems = random.sample(problems, sample_size)
-        add_log(f"Sampled {sample_size} problems from dataset for evaluation.")
+        problems = random.sample(problems, effective_size)
+        add_log(f"Sampled {effective_size} problems from dataset for evaluation.")
+    elif effective_size != sample_size:
+        add_log(
+            f"Requested sample_size={sample_size} exceeds dataset size "
+            f"({len(problems)}); evaluating the full dataset instead."
+        )
 
     update_state("total", len(problems))
     
@@ -515,17 +613,26 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
     
     # Define async worker loop
     async def worker(worker_id: int):
-        while not task_queue.empty():
-            # Check for termination/cancellation
-            if not BENCHMARK_STATE["active"]:
-                break
-                
+        while True:
+            # Check for termination/cancellation (thread-safe read)
+            with STATE_LOCK:
+                if not BENCHMARK_STATE["active"]:
+                    break
+
+            # Race-safe dequeue: get_nowait() prevents the deadlock where two
+            # workers pass the empty() check but only one item remains — the
+            # loser would block forever on await task_queue.get().
             try:
-                problem = await task_queue.get()
+                problem = task_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+            try:
                 await execute_task_on_tpu(worker_id, category, problem, orchestrator)
-                task_queue.task_done()
             except Exception as e:
                 add_log(f"Worker {worker_id} exception: {str(e)}")
+            finally:
+                task_queue.task_done()
                 
     # Launch concurrent workers mapped to available hardware
     add_log(f"Activating {num_workers}-way parallel execution on {hardware_name}...")
@@ -541,10 +648,16 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
     
     total_time = time.time() - start_time
     update_state("active", False)
-    
+
+    # Restore the orchestrator's previous Accuracy Booster setting so the
+    # benchmark run never leaks its state into subsequent interactive chat.
+    if orchestrator is not None and _prev_accuracy_boost is not None and hasattr(orchestrator, "accuracy_boost"):
+        orchestrator.accuracy_boost = _prev_accuracy_boost
+
     # Save to persistent history
     with STATE_LOCK:
         BENCHMARK_STATE["history"][category] = BENCHMARK_STATE["accuracy"]
+
         
     add_log(f"🏁 Benchmark finished in {total_time:.1f} seconds.")
     add_log(f"Final Score: {BENCHMARK_STATE['passed']}/{BENCHMARK_STATE['total']} passed ({BENCHMARK_STATE['accuracy']}% accuracy)")

@@ -3,364 +3,628 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeepThink AIOS - Accelerator Benchmark Dashboard</title>
+    <title>DeepThink AIOS · Benchmark Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+              mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+            },
+          },
+        },
+      };
+    </script>
     <style>
+        :root {
+            --bg-0: #05070d;
+            --bg-1: #0a0e1a;
+            --bg-2: #0f1421;
+            --bg-3: #151b2c;
+            --border: rgba(148, 163, 184, 0.08);
+            --border-strong: rgba(148, 163, 184, 0.18);
+            --text-1: #f8fafc;
+            --text-2: #cbd5e1;
+            --text-3: #94a3b8;
+            --text-4: #64748b;
+            --accent: #6366f1;
+            --accent-2: #22d3ee;
+            --success: #10b981;
+            --warn: #f59e0b;
+            --danger: #ef4444;
+        }
+        [data-theme="light"] {
+            --bg-0: #f8fafc;
+            --bg-1: #ffffff;
+            --bg-2: #f1f5f9;
+            --bg-3: #e2e8f0;
+            --border: rgba(15, 23, 42, 0.08);
+            --border-strong: rgba(15, 23, 42, 0.18);
+            --text-1: #0f172a;
+            --text-2: #1e293b;
+            --text-3: #475569;
+            --text-4: #64748b;
+        }
+        html, body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg-0);
+            color: var(--text-1);
+            font-feature-settings: 'cv02','cv03','cv04','cv11';
+            -webkit-font-smoothing: antialiased;
+        }
         body {
-            font-family: 'Outfit', sans-serif;
-            background: radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
-            color: #f8fafc;
+            background:
+              radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.15), transparent 50%),
+              radial-gradient(900px 500px at 100% 0%, rgba(34, 211, 238, 0.10), transparent 50%),
+              var(--bg-0);
             min-height: 100vh;
-            overflow-x: hidden;
         }
-        .glass {
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        .surface {
+            background: var(--bg-1);
+            border: 1px solid var(--border);
+            border-radius: 14px;
         }
-        .glass-hover:hover {
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            background: rgba(15, 23, 42, 0.75);
-            transform: translateY(-2px);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        .surface-2 {
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
         }
-        .tpu-glow {
-            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        .divider { border-top: 1px solid var(--border); }
+        .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+        .num { font-variant-numeric: tabular-nums; }
+        .text-2 { color: var(--text-2); }
+        .text-3 { color: var(--text-3); }
+        .text-4 { color: var(--text-4); }
+        .chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 3px 9px; border-radius: 999px;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+            border: 1px solid var(--border-strong);
+            background: var(--bg-2);
+            color: var(--text-2);
         }
-        .tpu-pulse {
-            animation: pulse 1.5s infinite alternate;
+        .chip .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--text-3); }
+        .chip.success { color: #34d399; border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.08); }
+        .chip.success .dot { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.15); }
+        .chip.info    { color: #93c5fd; border-color: rgba(59, 130, 246, 0.35); background: rgba(59, 130, 246, 0.08); }
+        .chip.info .dot { background: #3b82f6; }
+        .chip.warn    { color: #fbbf24; border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08); }
+        .chip.warn .dot { background: #f59e0b; }
+        .chip.danger  { color: #fca5a5; border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.08); }
+        .chip.danger .dot { background: #ef4444; }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 9px 14px; border-radius: 10px; font-size: 13px; font-weight: 600;
+            border: 1px solid var(--border-strong); background: var(--bg-2); color: var(--text-1);
+            transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
+            cursor: pointer;
         }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); }
-            100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.8); }
+        .btn:hover:not(:disabled) { background: var(--bg-3); border-color: rgba(148, 163, 184, 0.3); }
+        .btn:active:not(:disabled) { transform: translateY(1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary {
+            background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+            color: white; border: 1px solid rgba(99, 102, 241, 0.5);
+            box-shadow: 0 6px 22px -6px rgba(99, 102, 241, 0.55), inset 0 1px 0 rgba(255,255,255,0.15);
         }
-        .mono {
-            font-family: 'JetBrains Mono', monospace;
+        .btn-primary:hover:not(:disabled) {
+            background: linear-gradient(180deg, #7c7ff5 0%, #5b57eb 100%);
         }
+        .btn-danger { color: #fca5a5; }
+        .btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.10); border-color: rgba(239, 68, 68, 0.4); color: #f87171; }
+        .field label {
+            display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+            font-weight: 600; color: var(--text-4); margin-bottom: 6px;
+        }
+        .field select, .field input {
+            width: 100%; background: var(--bg-2); color: var(--text-1);
+            border: 1px solid var(--border-strong); border-radius: 10px;
+            padding: 10px 12px; font-size: 13px; font-weight: 500;
+            outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .field select:focus, .field input:focus {
+            border-color: rgba(99, 102, 241, 0.65);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+        .kpi-card { position: relative; overflow: hidden; }
+        .kpi-card::before {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.02) 100%);
+        }
+        .kpi-label {
+            font-size: 11px; font-weight: 600; color: var(--text-4);
+            text-transform: uppercase; letter-spacing: 0.09em;
+        }
+        .kpi-value {
+            font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+            font-variant-numeric: tabular-nums;
+        }
+        .kpi-delta { font-size: 11px; font-weight: 600; color: var(--text-3); margin-top: 2px; }
+        .kpi-delta.up { color: #34d399; }
+        .kpi-delta.down { color: #fca5a5; }
+        .progress-track { height: 6px; background: var(--bg-3); border-radius: 999px; overflow: hidden; }
+        .progress-fill {
+            height: 100%; border-radius: 999px;
+            background: linear-gradient(90deg, #6366f1, #22d3ee);
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .worker-card {
+            background: var(--bg-2); border: 1px solid var(--border);
+            border-radius: 12px; padding: 14px; transition: border-color 0.2s ease;
+        }
+        .worker-card.active { border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05); }
+        .worker-card.active .worker-status-dot { background: #6366f1; box-shadow: 0 0 0 4px rgba(99,102,241,0.15); }
+        .worker-status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--text-4); flex-shrink: 0; }
+        table.baseline { width: 100%; border-collapse: separate; border-spacing: 0; }
+        table.baseline thead th {
+            font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em;
+            color: var(--text-4); padding: 10px 8px; text-align: center;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-2); position: sticky; top: 0; z-index: 1;
+        }
+        table.baseline thead th:first-child { text-align: left; padding-left: 14px; }
+        table.baseline tbody td {
+            padding: 11px 8px; font-size: 12.5px; text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+        table.baseline tbody td:first-child { text-align: left; padding-left: 14px; color: var(--text-1); font-weight: 600; }
+        table.baseline tbody tr:hover td { background: var(--bg-2); }
+        table.baseline tbody tr.active td { background: rgba(99, 102, 241, 0.06); }
+        table.baseline tbody tr.active td:first-child { border-left: 3px solid #6366f1; padding-left: 11px; }
+        .our-cell { color: #a5b4fc; font-weight: 700; background: rgba(99, 102, 241, 0.04); }
+        .badge-best { display: inline-block; padding: 1px 6px; font-size: 10px; font-weight: 700; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #34d399; margin-left: 4px; }
+        .log-line { padding: 3px 8px; border-radius: 4px; font-size: 11.5px; line-height: 1.55; }
+        .log-line.pass { color: #6ee7b7; }
+        .log-line.fail { color: #fca5a5; }
+        .log-line.warn { color: #fbbf24; }
+        .log-line.info { color: #93c5fd; }
+        .log-line.system { color: var(--text-3); }
         /* Custom Scrollbars */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.35); }
+        /* Sparkline */
+        .sparkline { width: 100%; height: 40px; display: block; }
+        .skeleton {
+            background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
+            background-size: 200% 100%;
+            animation: skeleton 1.4s infinite;
+            border-radius: 6px;
         }
-        ::-webkit-scrollbar-track {
-            background: rgba(15, 23, 42, 0.3);
+        @keyframes skeleton {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
-        ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
+        .fade-in { animation: fade-in 0.4s ease; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+        /* Tabs */
+        .tab {
+            padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+            color: var(--text-3); cursor: pointer; transition: all 0.15s ease;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
+        .tab:hover { color: var(--text-2); background: var(--bg-2); }
+        .tab.active { color: var(--text-1); background: var(--bg-3); }
     </style>
 </head>
-<body class="p-6 md:p-8">
-    <div class="max-w-7xl mx-auto space-y-6">
-        
-        <!-- Header -->
-        <header class="glass rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 border border-blue-500/20">
-            <div class="flex items-center gap-4">
-                <div class="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-3xl shadow-lg shadow-blue-500/30">
-                    🧠
-                    <span class="absolute -bottom-1 -right-1 flex h-4 w-4">
-                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span class="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
-                    </span>
+<body>
+    <!-- Top Bar -->
+    <header class="sticky top-0 z-30 backdrop-blur-lg" style="background: rgba(5, 7, 13, 0.75); border-bottom: 1px solid var(--border);">
+        <div class="max-w-[1400px] mx-auto px-6 h-14 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #6366f1, #22d3ee);">
+                    <!-- Logo mark -->
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2 L2 7 L12 12 L22 7 Z"/><path d="M2 17 L12 22 L22 17"/><path d="M2 12 L12 17 L22 12"/>
+                    </svg>
                 </div>
-                <div>
-                    <h1 class="text-2xl md:text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-                        DeepThink AIOS
-                    </h1>
-                    <p class="text-sm md:text-base text-slate-400 font-medium">
-                        Distributed Accelerator Benchmark Dashboard
-                    </p>
+                <div class="flex items-baseline gap-2">
+                    <span class="font-bold text-[15px] tracking-tight">DeepThink AIOS</span>
+                    <span class="text-3 text-xs mono">/ Benchmark Console</span>
                 </div>
             </div>
-            <div class="flex flex-wrap items-center gap-3">
-                <div class="px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold text-sm flex items-center gap-2">
-                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Node Ready
-                </div>
-                <div id="parallelismBadge" class="px-4 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-semibold text-sm">
-                    Auto Parallelism
-                </div>
+            <div class="flex items-center gap-2">
+                <span id="statusChip" class="chip success"><span class="dot"></span>Node Ready</span>
+                <span id="parallelismBadge" class="chip info"><span class="dot"></span>Auto Parallelism</span>
+                <button id="themeToggle" class="btn" title="Toggle theme" style="padding: 7px 9px;">
+                    <svg id="themeIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
             </div>
-        </header>
+        </div>
+    </header>
 
-        <!-- Main Workspace -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            <!-- Left Controls Panel -->
-            <div class="space-y-6 lg:col-span-1">
-                <div class="glass rounded-3xl p-6 border border-slate-800">
-                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
-                        ⚙️ Controller Panel
-                    </h2>
-                    
+    <main class="max-w-[1400px] mx-auto px-6 py-6 space-y-6">
+        <!-- KPI Row -->
+        <section id="kpiRow" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-3">
+            <!-- KPI cards injected by JS -->
+        </section>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-12 gap-6">
+            <!-- Left column: Controls + Workers -->
+            <div class="col-span-12 lg:col-span-4 space-y-6">
+                <!-- Controls -->
+                <section class="surface p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-sm font-semibold flex items-center gap-2">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>
+                            Controller
+                        </h2>
+                    </div>
+
                     <div class="space-y-4">
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Benchmark Target</label>
-                            <select id="benchmarkCategory" class="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 transition font-medium">
-                                <option value="HumanEval">HumanEval (Coding)</option>
-                                <option value="MBPP">MBPP (Coding)</option>
-                                <option value="GSM8K">GSM8K (Math Reasoning)</option>
-                                <option value="MATH">MATH (Advanced Math)</option>
-                                <option value="GPQA (PhD Science)">GPQA (PhD Science & Bio)</option>
-                                <option value="AIME (Olympiad Logic)">AIME (Olympiad Math/Logic)</option>
-                                <option value="MuSR (PhD Logic)">MuSR (PhD Multi-Step Logic)</option>
-                                <option value="MMLU-Pro (Prof STEM)">MMLU-Pro (College/Prof STEM)</option>
-                                <option value="SWE-bench Lite">SWE-bench Lite (Engineering)</option>
-                                <option value="SWE-bench Pro">SWE-bench Pro (Enterprise SWE)</option>
-                                <option value="SearchQA / HotpotQA">SearchQA / HotpotQA (Web RAG)</option>
+                        <div class="field">
+                            <label>Benchmark Target</label>
+                            <select id="benchmarkCategory">
+                                <option value="HumanEval">HumanEval · Coding</option>
+                                <option value="MBPP">MBPP · Coding</option>
+                                <option value="GSM8K">GSM8K · Math Reasoning</option>
+                                <option value="MATH">MATH · Advanced Math</option>
+                                <option value="GPQA (PhD Science)">GPQA · PhD Science &amp; Bio</option>
+                                <option value="AIME (Olympiad Logic)">AIME · Olympiad Math/Logic</option>
+                                <option value="MuSR (PhD Logic)">MuSR · PhD Multi-Step Logic</option>
+                                <option value="MMLU-Pro (Prof STEM)">MMLU-Pro · College/Prof STEM</option>
+                                <option value="SWE-bench Lite">SWE-bench Lite · Engineering</option>
+                                <option value="SWE-bench Pro">SWE-bench Pro · Enterprise SWE</option>
+                                <option value="SearchQA / HotpotQA">SearchQA / HotpotQA · Web RAG</option>
                             </select>
                         </div>
-                        
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Sample Size (Problems)</label>
-                            <input id="sampleSize" type="number" value="50" min="5" max="5000" class="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 transition font-medium mono">
+                        <div class="field">
+                            <label>Sample Size</label>
+                            <input id="sampleSize" type="number" value="50" min="1" max="5000" class="mono">
                         </div>
-
-                        <div class="pt-1 pb-1">
-                            <button id="btnPreload" onclick="preloadModels()" class="w-full py-3 rounded-xl bg-slate-800 border border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-400 font-semibold active:scale-[0.98] transition flex justify-center items-center gap-2">
-                                <span id="preloadIcon">⚡</span> <span id="preloadText">Pre-load Models to VRAM</span>
-                            </button>
-                        </div>
-                        <div class="pt-2 flex gap-3">
-                            <button id="btnStart" onclick="startBenchmark()" class="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 font-semibold shadow-lg shadow-blue-500/20 active:scale-[0.98] transition">
+                        <button id="btnPreload" class="btn w-full" onclick="preloadModels()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 L3 14 L12 14 L11 22 L21 10 L12 10 Z"/></svg>
+                            <span id="preloadText">Pre-load Models to VRAM</span>
+                        </button>
+                        <div class="flex gap-2">
+                            <button id="btnStart" class="btn btn-primary flex-1" onclick="startBenchmark()">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4 L19 12 L5 20 Z"/></svg>
                                 Start Evaluation
                             </button>
-                            <button id="btnStop" onclick="stopBenchmark()" class="py-3.5 px-6 rounded-xl bg-slate-800 hover:bg-red-600/20 hover:border-red-500/30 border border-slate-700 text-slate-300 font-semibold active:scale-[0.98] transition">
+                            <button id="btnStop" class="btn btn-danger" onclick="stopBenchmark()">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
                                 Stop
                             </button>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <!-- Live Metrics Card -->
-                <div class="glass rounded-3xl p-6 border border-slate-800 relative overflow-hidden">
-                    <div class="absolute -right-16 -top-16 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl"></div>
-                    
-                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
-                        📊 Live KPI Performance
-                    </h2>
-                    
-                    <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
-                            <span class="block text-xs text-slate-400 font-medium mb-1">Accuracy / Pass@1</span>
-                            <div class="text-2xl font-bold text-blue-400 mono" id="metricAccuracy">0.0%</div>
-                        </div>
-                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
-                            <span class="block text-xs text-slate-400 font-medium mb-1">Compute Throughput</span>
-                            <div class="text-2xl font-bold text-emerald-400 mono" id="metricThroughput">0.0 t/s</div>
-                        </div>
-                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
-                            <span class="block text-xs text-slate-400 font-medium mb-1">Avg. Latency</span>
-                            <div class="text-2xl font-bold text-purple-400 mono" id="metricLatency">0.0s</div>
-                        </div>
-                        <div class="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4">
-                            <span class="block text-xs text-slate-400 font-medium mb-1">Total Time</span>
-                            <div class="text-2xl font-bold text-slate-300 mono" id="metricTime">0.0s</div>
-                        </div>
+                <!-- Workers -->
+                <section class="surface p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-sm font-semibold flex items-center gap-2">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                            Accelerator Workers
+                        </h2>
+                        <span class="text-3 text-xs mono" id="progressText">0 / 0</span>
                     </div>
-                </div>
+                    <div class="progress-track mb-4">
+                        <div id="progressBar" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div id="workersContainer" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+                </section>
             </div>
 
-            <!-- Center/Right Details Panel -->
-            <div class="space-y-6 lg:col-span-2">
-                
-                <!-- Live Progress Tracking -->
-                <div class="glass rounded-3xl p-6 border border-slate-800">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-lg font-bold text-slate-200 flex items-center gap-2">
-                            ⚡ Accelerator Core Topology Status
-                        </h2>
-                        <span class="text-sm font-medium text-slate-400 mono" id="progressText">0 / 0</span>
+            <!-- Right column: Comparison + Logs -->
+            <div class="col-span-12 lg:col-span-8 space-y-6">
+                <!-- Baselines -->
+                <section class="surface">
+                    <div class="p-5 pb-4 flex items-center justify-between">
+                        <div>
+                            <h2 class="text-sm font-semibold flex items-center gap-2">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 L15 8.5 L22 9.5 L17 14.5 L18.5 22 L12 18 L5.5 22 L7 14.5 L2 9.5 L9 8.5 Z"/></svg>
+                                Competitive Baselines
+                            </h2>
+                            <p class="text-3 text-xs mt-0.5">Verified public benchmark scores across leading models</p>
+                        </div>
+                        <div class="flex gap-1" role="tablist">
+                            <span class="tab active" data-view="score">Score</span>
+                            <span class="tab" data-view="delta">Δ vs SOTA</span>
+                        </div>
                     </div>
-
-                    <!-- Progress Bar -->
-                    <div class="w-full bg-slate-950/80 rounded-full h-3.5 mb-6 overflow-hidden border border-slate-800">
-                        <div id="progressBar" class="bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 h-full w-0 rounded-full transition-all duration-500"></div>
-                    </div>
-
-                    <!-- TPU Cores Grid -->
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="tpuCoresContainer">
-                        <!-- Cores will be dynamically rendered -->
-                    </div>
-                </div>
-
-                <!-- Comparison to Baselines -->
-                <div class="glass rounded-3xl p-6 border border-slate-800">
-                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
-                        🏆 Competitive Baseline Comparison
-                    </h2>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse min-w-[750px]">
+                        <table class="baseline min-w-[720px]">
                             <thead>
-                                <tr class="border-b border-slate-800 text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                    <th class="py-3.5 px-3 text-left">Evaluation Benchmark</th>
-                                    <th class="py-3.5 px-2 text-center text-blue-400">GPT-4o</th>
-                                    <th class="py-3.5 px-2 text-center text-orange-400">Sonnet 3.5</th>
-                                    <th class="py-3.5 px-2 text-center text-amber-500">Opus 3</th>
-                                    <th class="py-3.5 px-2 text-center text-emerald-400">Gemini 1.5 Pro</th>
-                                    <th class="py-3.5 px-2 text-center text-purple-400 font-extrabold">Fable / SOTA</th>
-                                    <th class="py-3.5 px-2 text-center text-slate-500 font-medium">Llama-3-70B</th>
-                                    <th class="py-3.5 px-3 text-center text-blue-400 bg-blue-500/5 rounded-t-2xl border-t border-x border-blue-500/20 font-extrabold">DeepThink AIOS</th>
+                                <tr>
+                                    <th>Benchmark</th>
+                                    <th>GPT-4o</th>
+                                    <th>Sonnet 3.5</th>
+                                    <th>Llama-3 70B</th>
+                                    <th style="color:#a5b4fc;">DeepThink AIOS</th>
+                                    <th>Δ vs SOTA</th>
                                 </tr>
                             </thead>
-                            <tbody class="text-xs md:text-sm text-slate-300 font-medium" id="baselineTableBody">
-                                <!-- Dynamic baselines -->
-                            </tbody>
+                            <tbody id="baselineTableBody"></tbody>
                         </table>
                     </div>
-                </div>
+                </section>
 
-                <!-- Live Stream Console Log -->
-                <div class="glass rounded-3xl p-6 border border-slate-800">
-                    <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center justify-between">
-                        <span>📝 Real-Time Evaluation Logs</span>
-                        <span class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 mono">Host: Compute-Node</span>
-                    </h2>
-                    <div id="consoleLogs" class="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 h-64 overflow-y-auto font-medium mono text-xs leading-relaxed text-slate-300 space-y-2">
-                        <div class="text-slate-500">[System] Dashboard initialized. Select a benchmark and click "Start".</div>
+                <!-- Logs -->
+                <section class="surface">
+                    <div class="p-5 pb-3 flex items-center justify-between flex-wrap gap-3">
+                        <h2 class="text-sm font-semibold flex items-center gap-2">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                            Real-Time Evaluation Log
+                        </h2>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <div class="flex gap-1" role="tablist" id="logFilters">
+                                <span class="tab active" data-filter="all">All</span>
+                                <span class="tab" data-filter="pass">Pass</span>
+                                <span class="tab" data-filter="fail">Fail</span>
+                                <span class="tab" data-filter="warn">Warn</span>
+                            </div>
+                            <label class="text-3 text-xs flex items-center gap-1.5 select-none">
+                                <input id="autoFollow" type="checkbox" checked class="accent-indigo-500">
+                                Auto-follow
+                            </label>
+                        </div>
                     </div>
-                </div>
-
+                    <div id="consoleLogs" class="mono px-3 pb-4 space-y-0.5" style="height: 320px; overflow-y: auto;"></div>
+                </section>
             </div>
         </div>
-    </div>
+
+        <footer class="text-4 text-xs text-center py-4 mono">
+            DeepThink AIOS · Distributed Multi-Agent OS · Benchmark Runner v2
+        </footer>
+    </main>
 
     <script>
+        // ─────────────────────────────────────────────────────────────
+        // State + config
+        // ─────────────────────────────────────────────────────────────
         let updateInterval = null;
+        let activeView = "score";
+        let activeLogFilter = "all";
+        let lastLogHash = "";
+        const history = { accuracy: [], throughput: [] };
+        const HISTORY_MAX = 60;
 
-        // Initialize TPU cores
-        function renderTpuCores(workers) {
-            const container = document.getElementById("tpuCoresContainer");
-            container.innerHTML = "";
-            
-            workers.forEach((worker, index) => {
-                const isActive = worker.status !== "Idle";
-                const borderClass = isActive ? "border-blue-500/40 bg-blue-500/5" : "border-slate-800 bg-slate-950/20";
-                const pulseClass = isActive ? "tpu-pulse bg-blue-500" : "bg-slate-700";
-                const glowClass = isActive ? "tpu-glow" : "";
-                
-                container.innerHTML += `
-                    <div class="border ${borderClass} rounded-2xl p-4 text-center relative overflow-hidden transition-all duration-300 ${glowClass}">
-                        <div class="absolute top-2 right-2 flex h-2.5 w-2.5">
-                            <span class="${isActive ? 'animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75' : ''}"></span>
-                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 ${pulseClass}"></span>
-                        </div>
-                        <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Core ${index}</div>
-                        <div class="text-sm font-bold text-slate-200 truncate max-w-full">${worker.task}</div>
-                        <div class="text-[10px] text-slate-400 mt-1 font-medium italic truncate">${worker.status}</div>
-                    </div>
-                `;
-            });
+        // Static best-known baseline scores for delta computation
+        const baselines = {
+            "HumanEval":               { name: "HumanEval",                 gpt4: 90.2, sonnet: 92.0, llama3: 86.0, sota: 93.5 },
+            "MBPP":                    { name: "MBPP",                      gpt4: 86.4, sonnet: 90.5, llama3: 81.2, sota: 91.0 },
+            "GSM8K":                   { name: "GSM8K",                     gpt4: 92.0, sonnet: 96.4, llama3: 93.0, sota: 96.4 },
+            "MATH":                    { name: "MATH",                      gpt4: 42.5, sonnet: 71.1, llama3: 41.0, sota: 71.1 },
+            "GPQA (PhD Science)":      { name: "GPQA (PhD Science)",        gpt4: 53.6, sonnet: 65.0, llama3: 41.4, sota: 65.0 },
+            "AIME (Olympiad Logic)":   { name: "AIME (Olympiad Math)",      gpt4: 16.7, sonnet: 23.3, llama3: 10.0, sota: 23.3 },
+            "MuSR (PhD Logic)":        { name: "MuSR (Multi-Step Logic)",   gpt4: 45.0, sonnet: 48.5, llama3: 38.0, sota: 48.5 },
+            "MMLU-Pro (Prof STEM)":    { name: "MMLU-Pro",                  gpt4: 72.6, sonnet: 77.0, llama3: 61.0, sota: 77.0 },
+            "SWE-bench Lite":          { name: "SWE-bench Lite",            gpt4: 13.0, sonnet: 27.3, llama3: 3.8,  sota: 38.5 },
+            "SWE-bench Pro":           { name: "SWE-bench Pro",             gpt4: 8.0,  sonnet: 18.2, llama3: 1.5,  sota: 24.0 },
+            "SearchQA / HotpotQA":     { name: "SearchQA / HotpotQA",       gpt4: 85.0, sonnet: 88.0, llama3: 82.0, sota: 88.0 }
+        };
+
+        // ─────────────────────────────────────────────────────────────
+        // KPI cards
+        // ─────────────────────────────────────────────────────────────
+        function renderKpiRow(state) {
+            const row = document.getElementById("kpiRow");
+            const eta = (state.progress > 0 && state.total > 0 && state.elapsed_seconds > 0)
+                ? ((state.total - state.progress) * (state.elapsed_seconds / state.progress))
+                : 0;
+            const kpis = [
+                { label: "Accuracy",   value: `${(state.accuracy ?? 0).toFixed(1)}%`, spark: history.accuracy,   accent: "#22d3ee" },
+                { label: "Throughput", value: `${(state.tokens_per_sec ?? 0).toFixed(1)} t/s`, spark: history.throughput, accent: "#10b981" },
+                { label: "Latency",    value: `${(state.avg_latency ?? 0).toFixed(2)}s`, accent: "#a78bfa" },
+                { label: "Elapsed",    value: fmtDuration(state.elapsed_seconds ?? 0), accent: "#f8fafc" },
+                { label: "ETA",        value: fmtDuration(eta), accent: "#94a3b8" }
+            ];
+            row.innerHTML = kpis.map(k => `
+                <div class="surface kpi-card p-4">
+                    <div class="kpi-label">${k.label}</div>
+                    <div class="kpi-value mt-1" style="color:${k.accent}">${k.value}</div>
+                    ${k.spark && k.spark.length > 1 ? sparklineSvg(k.spark, k.accent) : `<div style="height:40px"></div>`}
+                </div>
+            `).join("");
         }
 
-        // Render baseline comparison table
-        function renderBaselines(currentCategory, currentAccuracy, history = {}) {
-            const tableBody = document.getElementById("baselineTableBody");
-            
-            // Raw static data
-            const baselines = {
-                "HumanEval": { name: "HumanEval (Coding)", gpt4: "90.2%", sonnet: "92.0%", opus: "84.1%", gemini: "84.1%", fable: "93.5%", llama3: "86.0%", target: "HumanEval" },
-                "MBPP": { name: "MBPP (Coding)", gpt4: "86.4%", sonnet: "90.5%", opus: "83.0%", gemini: "82.5%", fable: "91.0%", llama3: "81.2%", target: "MBPP" },
-                "GSM8K": { name: "GSM8K (Math Reasoning)", gpt4: "92.0%", sonnet: "96.4%", opus: "95.0%", gemini: "91.7%", fable: "N/A", llama3: "93.0%", target: "GSM8K" },
-                "MATH": { name: "MATH (Advanced Algebra/Calculus)", gpt4: "42.5%", sonnet: "71.1%", opus: "60.1%", gemini: "57.7%", fable: "N/A", llama3: "41.0%", target: "MATH" },
-                "GPQA (PhD Science)": { name: "GPQA (PhD Science & Bio)", gpt4: "53.6%", sonnet: "65.0%", opus: "50.5%", gemini: "46.2%", fable: "N/A", llama3: "41.4%", target: "GPQA (PhD Science)" },
-                "AIME (Olympiad Logic)": { name: "AIME (Olympiad Math/Logic)", gpt4: "16.7%", sonnet: "23.3%", opus: "13.3%", gemini: "12.5%", fable: "N/A", llama3: "10.0%", target: "AIME (Olympiad Logic)" },
-                "MuSR (PhD Logic)": { name: "MuSR (PhD Multi-Step Logic)", gpt4: "45.0%", sonnet: "48.5%", opus: "42.0%", gemini: "41.5%", fable: "N/A", llama3: "38.0%", target: "MuSR (PhD Logic)" },
-                "MMLU-Pro (Prof STEM)": { name: "MMLU-Pro (College/Prof STEM)", gpt4: "72.6%", sonnet: "77.0%", opus: "68.5%", gemini: "64.0%", fable: "N/A", llama3: "61.0%", target: "MMLU-Pro (Prof STEM)" },
-                "SWE-bench Lite": { name: "SWE-bench Lite (SWE)", gpt4: "13.0%", sonnet: "27.3%", opus: "11.7%", gemini: "12.5%", fable: "38.5%", llama3: "3.8%", target: "SWE-bench Lite" },
-                "SWE-bench Pro": { name: "SWE-bench Pro (SWE Enterprise)", gpt4: "8.0%", sonnet: "18.2%", opus: "7.5%", gemini: "6.8%", fable: "24.0%", llama3: "1.5%", target: "SWE-bench Pro" },
-                "SearchQA / HotpotQA": { name: "SearchQA / HotpotQA (RAG)", gpt4: "85.0%", sonnet: "88.0%", opus: "83.5%", gemini: "84.0%", fable: "N/A", llama3: "82.0%", target: "SearchQA / HotpotQA" }
-            };
+        function fmtDuration(s) {
+            if (!isFinite(s) || s <= 0) return "0s";
+            const total = Math.round(s);
+            if (total < 60) return `${total}s`;
+            const m = Math.floor(total / 60), sec = total % 60;
+            if (m < 60) return `${m}m ${sec}s`;
+            const h = Math.floor(m / 60);
+            return `${h}h ${m % 60}m`;
+        }
 
-            tableBody.innerHTML = "";
-            Object.keys(baselines).forEach(key => {
+        function sparklineSvg(data, color) {
+            if (!data || data.length < 2) return `<div style="height:40px"></div>`;
+            const w = 100, h = 40, pad = 2;
+            const max = Math.max(...data, 1);
+            const min = Math.min(...data, 0);
+            const range = Math.max(max - min, 0.001);
+            const pts = data.map((v, i) => {
+                const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+                const y = h - pad - ((v - min) / range) * (h - pad * 2);
+                return `${x.toFixed(2)},${y.toFixed(2)}`;
+            }).join(" ");
+            const areaPts = `${pad},${h - pad} ${pts} ${w - pad},${h - pad}`;
+            return `
+                <svg class="sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+                    <defs>
+                        <linearGradient id="g_${color.replace('#','')}" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+                            <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+                    <polygon points="${areaPts}" fill="url(#g_${color.replace('#','')})"/>
+                    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Workers
+        // ─────────────────────────────────────────────────────────────
+        function renderWorkers(workers) {
+            const container = document.getElementById("workersContainer");
+            const html = workers.map((w, i) => {
+                const active = w.status && w.status !== "Idle";
+                const pct = Math.max(0, Math.min(100, w.progress || 0));
+                const truncTask = escapeHtml((w.task ?? "N/A")).slice(0, 32);
+                const status = escapeHtml(w.status ?? "Idle").slice(0, 44);
+                return `
+                    <div class="worker-card ${active ? 'active' : ''}">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="worker-status-dot"></div>
+                                <span class="text-3 text-[10px] font-semibold uppercase tracking-wider">Core ${i}</span>
+                            </div>
+                            <span class="text-4 text-[10px] mono">${pct}%</span>
+                        </div>
+                        <div class="text-[12.5px] font-semibold truncate mb-1">${truncTask}</div>
+                        <div class="text-3 text-[11px] italic truncate mb-2">${status}</div>
+                        <div class="progress-track" style="height:4px;">
+                            <div class="progress-fill" style="width:${pct}%; ${active ? '' : 'opacity:0.4;'}"></div>
+                        </div>
+                    </div>`;
+            }).join("");
+            container.innerHTML = html;
+        }
+
+        function escapeHtml(s) {
+            return String(s ?? "")
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Baseline table
+        // ─────────────────────────────────────────────────────────────
+        function renderBaselines(currentCategory, currentAccuracy, hist) {
+            const tbody = document.getElementById("baselineTableBody");
+            tbody.innerHTML = Object.keys(baselines).map(key => {
                 const item = baselines[key];
                 const isCurrent = key === currentCategory;
-                
-                // Highlight active row with a premium glowing border
-                const rowHighlight = isCurrent 
-                    ? "bg-blue-500/10 border-l-4 border-l-blue-500 border-y border-y-blue-500/20" 
-                    : "border-b border-slate-900/60 hover:bg-slate-900/30";
-                
-                // Retrieve score from persistent history if not currently running
-                const historyScore = history[key];
-                const displayAccuracy = isCurrent ? `${currentAccuracy}%` : (historyScore !== undefined ? `${historyScore}%` : "N/A (Pending)");
-                
-                tableBody.innerHTML += `
-                    <tr class="${rowHighlight} transition-all duration-150">
-                        <td class="py-3 px-3 text-slate-200 font-semibold text-xs md:text-sm">${item.name}</td>
-                        <td class="py-3 px-2 text-center text-slate-400 mono text-xs md:text-sm">${item.gpt4}</td>
-                        <td class="py-3 px-2 text-center text-slate-400 mono text-xs md:text-sm">${item.sonnet}</td>
-                        <td class="py-3 px-2 text-center text-slate-400 mono text-xs md:text-sm">${item.opus}</td>
-                        <td class="py-3 px-2 text-center text-slate-400 mono text-xs md:text-sm">${item.gemini}</td>
-                        <td class="py-3 px-2 text-center text-purple-400/90 font-semibold mono text-xs md:text-sm">${item.fable}</td>
-                        <td class="py-3 px-2 text-center text-slate-500 mono text-xs md:text-sm">${item.llama3}</td>
-                        <td class="py-3 px-3 text-center text-blue-400 font-bold mono text-xs md:text-sm bg-blue-500/5 border-x border-blue-500/10">${displayAccuracy}</td>
-                    </tr>
-                `;
-            });
+                const historyScore = hist && hist[key];
+                const ourScore = isCurrent ? Number(currentAccuracy) : (historyScore !== undefined ? Number(historyScore) : null);
+                const cellOur = ourScore === null || Number.isNaN(ourScore)
+                    ? `<span class="text-4">—</span>`
+                    : `${ourScore.toFixed(1)}%${ourScore >= item.sota ? '<span class="badge-best">BEST</span>' : ''}`;
+                const delta = ourScore === null ? null : (ourScore - item.sota);
+                const deltaCell = delta === null
+                    ? `<span class="text-4">—</span>`
+                    : (delta >= 0
+                        ? `<span style="color:#34d399" class="font-semibold mono">+${delta.toFixed(1)}%</span>`
+                        : `<span style="color:#f87171" class="font-semibold mono">${delta.toFixed(1)}%</span>`);
+
+                if (activeView === "delta") {
+                    const barPct = Math.max(0, Math.min(100, ((ourScore ?? 0) / Math.max(item.sota, 1)) * 100));
+                    return `
+                        <tr class="${isCurrent ? 'active' : ''}">
+                            <td>${item.name}</td>
+                            <td class="text-3 mono">${item.gpt4.toFixed(1)}%</td>
+                            <td class="text-3 mono">${item.sonnet.toFixed(1)}%</td>
+                            <td class="text-3 mono">${item.llama3.toFixed(1)}%</td>
+                            <td class="our-cell mono">${cellOur}</td>
+                            <td>
+                                <div class="flex items-center gap-2 justify-center">
+                                    <div class="progress-track" style="width:70px; height:5px;">
+                                        <div class="progress-fill" style="width:${barPct}%;"></div>
+                                    </div>
+                                    ${deltaCell}
+                                </div>
+                            </td>
+                        </tr>`;
+                }
+                return `
+                    <tr class="${isCurrent ? 'active' : ''}">
+                        <td>${item.name}</td>
+                        <td class="text-3 mono">${item.gpt4.toFixed(1)}%</td>
+                        <td class="text-3 mono">${item.sonnet.toFixed(1)}%</td>
+                        <td class="text-3 mono">${item.llama3.toFixed(1)}%</td>
+                        <td class="our-cell mono">${cellOur}</td>
+                        <td>${deltaCell}</td>
+                    </tr>`;
+            }).join("");
         }
 
-        // Fetch updates from backend
+        // ─────────────────────────────────────────────────────────────
+        // Logs
+        // ─────────────────────────────────────────────────────────────
+        function classifyLog(text) {
+            const t = text.toLowerCase();
+            if (t.includes("✅") || t.includes("passed")) return "pass";
+            if (t.includes("❌") || t.includes("failed") || t.includes("error")) return "fail";
+            if (t.includes("⚠️") || t.includes("warning")) return "warn";
+            if (t.includes("🚀") || t.includes("🏁") || t.includes("activating")) return "info";
+            return "system";
+        }
+
+        function renderLogs(logs) {
+            const container = document.getElementById("consoleLogs");
+            const autoFollow = document.getElementById("autoFollow").checked;
+            const wasBottom = autoFollow || (container.scrollTop + container.clientHeight >= container.scrollHeight - 30);
+
+            const filtered = activeLogFilter === "all"
+                ? logs
+                : logs.filter(l => classifyLog(l) === activeLogFilter);
+
+            // Simple hash to skip re-render when nothing changed
+            const hash = filtered.length + "|" + (filtered[filtered.length - 1] || "");
+            if (hash === lastLogHash) return;
+            lastLogHash = hash;
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="log-line system">[System] No entries match this filter.</div>`;
+                return;
+            }
+            container.innerHTML = filtered.map(l => {
+                const kind = classifyLog(l);
+                return `<div class="log-line ${kind}">${escapeHtml(l)}</div>`;
+            }).join("");
+            if (wasBottom) container.scrollTop = container.scrollHeight;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Networking
+        // ─────────────────────────────────────────────────────────────
         async function fetchStatus() {
             try {
-                const res = await fetch("/api/benchmark/status", {
-                    headers: { "Bypass-Tunnel-Reminder": "true" }
-                });
+                const res = await fetch("/api/benchmark/status", { headers: { "Bypass-Tunnel-Reminder": "true" } });
                 const state = await res.json();
-                
-                // Update stats
-                document.getElementById("metricAccuracy").innerText = `${state.accuracy}%`;
-                document.getElementById("metricThroughput").innerText = `${state.tokens_per_sec} t/s`;
-                document.getElementById("metricLatency").innerText = `${state.avg_latency}s`;
-                document.getElementById("metricTime").innerText = `${state.elapsed_seconds}s`;
-                
-                if (state.workers && state.workers.length > 0) {
-                    document.getElementById("parallelismBadge").innerText = `${state.workers.length}-Way Parallelism`;
-                }
-                
-                // Progress
-                const progressText = `${state.progress} / ${state.total}`;
-                document.getElementById("progressText").innerText = progressText;
-                
-                const pct = state.total > 0 ? (state.progress / state.total) * 100 : 0;
-                document.getElementById("progressBar").style.width = `${pct}%`;
-                
-                // Active Core display
-                renderTpuCores(state.workers);
-                
-                // Baseline tables
-                renderBaselines(state.category, state.accuracy, state.history);
-                
-                // Logs stream
-                const logContainer = document.getElementById("consoleLogs");
-                // Only rewrite log content if there's a difference in log count
-                const logElements = logContainer.getElementsByTagName("div");
-                if (logElements.length !== state.logs.length) {
-                    logContainer.innerHTML = state.logs.map(log => {
-                        let colorClass = "text-slate-300";
-                        if (log.includes("✅")) colorClass = "text-emerald-400 font-bold";
-                        if (log.includes("❌")) colorClass = "text-red-400 font-bold";
-                        if (log.includes("🚀") || log.includes("🏁")) colorClass = "text-blue-400 font-bold";
-                        return `<div class="${colorClass}">${log}</div>`;
-                    }).join("");
-                    logContainer.scrollTop = logContainer.scrollHeight;
+
+                // Track sparkline history when a run is active
+                if (state.active) {
+                    history.accuracy.push(state.accuracy ?? 0);
+                    history.throughput.push(state.tokens_per_sec ?? 0);
+                    if (history.accuracy.length > HISTORY_MAX) history.accuracy.shift();
+                    if (history.throughput.length > HISTORY_MAX) history.throughput.shift();
                 }
 
-                // Handle button states
+                renderKpiRow(state);
+
+                if (state.workers && state.workers.length > 0) {
+                    document.getElementById("parallelismBadge").innerHTML =
+                        `<span class="dot"></span>${state.workers.length}-Way Parallel`;
+                    renderWorkers(state.workers);
+                }
+
+                document.getElementById("progressText").innerText = `${state.progress ?? 0} / ${state.total ?? 0}`;
+                const pct = state.total > 0 ? (state.progress / state.total) * 100 : 0;
+                document.getElementById("progressBar").style.width = `${pct}%`;
+
+                renderBaselines(state.category, state.accuracy, state.history);
+                renderLogs(state.logs || []);
+
+                // Buttons
+                const startBtn = document.getElementById("btnStart");
                 if (state.active) {
-                    document.getElementById("btnStart").disabled = true;
-                    document.getElementById("btnStart").classList.add("opacity-50", "cursor-not-allowed");
+                    startBtn.disabled = true;
+                    document.getElementById("statusChip").innerHTML = `<span class="dot"></span>Running`;
+                    document.getElementById("statusChip").className = "chip info";
                 } else {
-                    document.getElementById("btnStart").disabled = false;
-                    document.getElementById("btnStart").classList.remove("opacity-50", "cursor-not-allowed");
-                    if (updateInterval && state.progress === state.total) {
+                    startBtn.disabled = false;
+                    document.getElementById("statusChip").innerHTML = `<span class="dot"></span>Idle`;
+                    document.getElementById("statusChip").className = "chip success";
+                    if (updateInterval && state.progress === state.total && state.total > 0) {
                         clearInterval(updateInterval);
                         updateInterval = null;
                     }
@@ -372,91 +636,90 @@
 
         async function startBenchmark() {
             const category = document.getElementById("benchmarkCategory").value;
-            const size = document.getElementById("sampleSize").value;
-            
+            const size = parseInt(document.getElementById("sampleSize").value, 10) || 50;
+            // Reset local sparkline history for the new run
+            history.accuracy.length = 0;
+            history.throughput.length = 0;
             try {
                 const res = await fetch("/api/benchmark/start", {
                     method: "POST",
-                    headers: { 
-                        "Content-Type": "application/json",
-                        "Bypass-Tunnel-Reminder": "true" 
-                    },
-                    body: JSON.stringify({ category: category, sample_size: parseInt(size) })
+                    headers: { "Content-Type": "application/json", "Bypass-Tunnel-Reminder": "true" },
+                    body: JSON.stringify({ category, sample_size: size })
                 });
                 const data = await res.json();
-                
                 if (data.status === "started") {
-                    if (!updateInterval) {
-                        updateInterval = setInterval(fetchStatus, 1000);
-                    }
+                    if (!updateInterval) updateInterval = setInterval(fetchStatus, 1000);
                     setTimeout(fetchStatus, 200);
                 }
-            } catch (err) {
-                console.error("Error starting benchmark:", err);
-            }
+            } catch (err) { console.error("Error starting benchmark:", err); }
         }
 
         async function stopBenchmark() {
             try {
-                await fetch("/api/benchmark/stop", { 
-                    method: "POST",
-                    headers: { "Bypass-Tunnel-Reminder": "true" }
-                });
+                await fetch("/api/benchmark/stop", { method: "POST", headers: { "Bypass-Tunnel-Reminder": "true" } });
                 setTimeout(fetchStatus, 200);
-            } catch (err) {
-                console.error("Error stopping benchmark:", err);
-            }
+            } catch (err) { console.error("Error stopping benchmark:", err); }
         }
 
         async function preloadModels() {
-            const btnText = document.getElementById("preloadText");
-            const btnIcon = document.getElementById("preloadIcon");
             const btn = document.getElementById("btnPreload");
-            
+            const text = document.getElementById("preloadText");
+            const original = text.innerText;
             btn.disabled = true;
-            btnText.innerText = "Loading Models into VRAM...";
-            btnIcon.innerText = "⏳";
-            btnIcon.classList.add("animate-spin");
-            
+            text.innerText = "Loading models…";
             try {
-                const res = await fetch("/api/load_all", { 
-                    method: "POST",
-                    headers: { "Bypass-Tunnel-Reminder": "true" }
-                });
+                const res = await fetch("/api/load_all", { method: "POST", headers: { "Bypass-Tunnel-Reminder": "true" } });
                 const data = await res.json();
-                
-                btnIcon.classList.remove("animate-spin");
-                if (data.status === "success") {
-                    btnText.innerText = "Models Loaded Successfully!";
-                    btnIcon.innerText = "✅";
-                    btn.classList.replace("bg-slate-800", "bg-emerald-500/20");
-                } else {
-                    btnText.innerText = "Load Failed";
-                    btnIcon.innerText = "❌";
-                }
-            } catch (err) {
-                console.error("Error preloading models:", err);
-                btnIcon.classList.remove("animate-spin");
-                btnText.innerText = "Error Loading Models";
-                btnIcon.innerText = "⚠️";
+                text.innerText = data.status === "success" ? "Models loaded ✓" : "Load failed";
+            } catch {
+                text.innerText = "Error loading";
             }
-            
-            setTimeout(() => {
-                btn.disabled = false;
-                btnText.innerText = "Pre-load Models to VRAM";
-                btnIcon.innerText = "⚡";
-                btn.classList.replace("bg-emerald-500/20", "bg-slate-800");
-            }, 4000);
+            setTimeout(() => { btn.disabled = false; text.innerText = original; }, 3500);
         }
 
-        // Initial setup
-        renderTpuCores([{id:0,status:'Idle',task:'N/A',progress:0},{id:1,status:'Idle',task:'N/A',progress:0},{id:2,status:'Idle',task:'N/A',progress:0},{id:3,status:'Idle',task:'N/A',progress:0},{id:4,status:'Idle',task:'N/A',progress:0},{id:5,status:'Idle',task:'N/A',progress:0},{id:6,status:'Idle',task:'N/A',progress:0},{id:7,status:'Idle',task:'N/A',progress:0}]);
-        renderBaselines(null, 0.0);
-        
-        // Auto check status on load
+        // ─────────────────────────────────────────────────────────────
+        // UI wiring
+        // ─────────────────────────────────────────────────────────────
+        document.querySelectorAll("[data-view]").forEach(t => {
+            t.addEventListener("click", () => {
+                document.querySelectorAll("[data-view]").forEach(x => x.classList.remove("active"));
+                t.classList.add("active");
+                activeView = t.dataset.view;
+                fetchStatus();
+            });
+        });
+        document.querySelectorAll("[data-filter]").forEach(t => {
+            t.addEventListener("click", () => {
+                document.querySelectorAll("[data-filter]").forEach(x => x.classList.remove("active"));
+                t.classList.add("active");
+                activeLogFilter = t.dataset.filter;
+                lastLogHash = "";
+                fetchStatus();
+            });
+        });
+
+        // Theme toggle with localStorage persistence
+        const savedTheme = localStorage.getItem("dt_theme") || "dark";
+        if (savedTheme === "light") document.documentElement.setAttribute("data-theme", "light");
+        document.getElementById("themeToggle").addEventListener("click", () => {
+            const isLight = document.documentElement.getAttribute("data-theme") === "light";
+            if (isLight) {
+                document.documentElement.removeAttribute("data-theme");
+                localStorage.setItem("dt_theme", "dark");
+            } else {
+                document.documentElement.setAttribute("data-theme", "light");
+                localStorage.setItem("dt_theme", "light");
+            }
+        });
+
+        // Initial render skeletons
+        renderKpiRow({ accuracy: 0, tokens_per_sec: 0, avg_latency: 0, elapsed_seconds: 0, progress: 0, total: 0 });
+        renderWorkers(Array.from({ length: 4 }, (_, i) => ({ id: i, status: "Idle", task: "N/A", progress: 0 })));
+        renderBaselines(null, 0, {});
+
+        // Kick off polling
         fetchStatus();
-        // If benchmark is already active on host, start monitoring immediately
-        setInterval(fetchStatus, 2500); 
+        setInterval(fetchStatus, 2500);
     </script>
 </body>
 </html>
