@@ -31,8 +31,10 @@ def _install_pytest_stub():
         return
 
     import types
+    import importlib.machinery
 
     stub = types.ModuleType("pytest")
+    stub.__spec__ = importlib.machinery.ModuleSpec("pytest", None)
 
     def skip(msg="", allow_module_level=False):
         raise _SkipModule(msg)

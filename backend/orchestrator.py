@@ -129,6 +129,7 @@ class TransformerWrapper:
 class AgentOrchestrator:
     def __init__(self, cancel_event=None):
         self.cancel_event = cancel_event  # threading.Event for cancel support
+        self.current_phase = "Initialization"
         self.context_length = 8192
         self.max_tokens = 2048
         self.temperature = 0.7
@@ -240,6 +241,24 @@ class AgentOrchestrator:
         for k, v in kwargs.items():
             if v is not None:
                 setattr(self, k, v)
+
+    def _check_cancelled(self, phase_name=None):
+        """Raises RuntimeError if the cancel_event is set (user clicked Stop).
+        Call this between pipeline phases to short-circuit immediately."""
+        if phase_name:
+            self.current_phase = phase_name
+        if self.cancel_event and self.cancel_event.is_set():
+            phase = getattr(self, 'current_phase', 'Unknown Phase')
+            log_dir = "outputs"
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, "execution_interrupts.log")
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                with open(log_file, "a") as f:
+                    f.write(f"[{timestamp}] INTERRUPT: Active generation cancelled in phase: '{phase}'\n")
+            except Exception as e:
+                print(f"Error writing execution log: {e}")
+            raise RuntimeError(f"Generation cancelled by user in phase: {phase}.")
 
     # =========================================================================
     # DYNAMIC MEMORY ALLOCATOR  (Adaptive + LRU)
@@ -1361,8 +1380,7 @@ class AgentOrchestrator:
         pal_success_count = 0
 
         for i in range(k):
-            if self.cancel_event and self.cancel_event.is_set():
-                raise RuntimeError("Generation cancelled by user.")
+            self._check_cancelled("reasoning:accuracy_boost_pal")
             if status_callback:
                 status_callback(
                     f"⚡ PAL sample {i + 1}/{k}...", "info", "deepseek_r1",
@@ -1658,8 +1676,7 @@ class AgentOrchestrator:
     # DRY Helper: Call any model (TransformerWrapper or GGUF)
     # =========================================================================
     def _call_model(self, llm, prompt, max_tokens=512, temperature=0.7, system_prompt=None):
-        if self.cancel_event and self.cancel_event.is_set():
-            raise RuntimeError("Generation cancelled by user.")
+        self._check_cancelled()
 
         if isinstance(llm, TransformerWrapper):
             return llm(prompt, max_tokens=max_tokens, temperature=temperature, system_prompt=system_prompt)
@@ -1760,8 +1777,7 @@ class AgentOrchestrator:
             
             content_pieces = []
             for chunk in chunks:
-                if self.cancel_event and self.cancel_event.is_set():
-                    raise RuntimeError("Generation cancelled by user.")
+                self._check_cancelled()
                 
                 choices = chunk.get('choices', [])
                 if choices:
@@ -2864,6 +2880,7 @@ class AgentOrchestrator:
     def _prediction_pipeline(self, prompt, enriched_prompt, router_llm,
                               router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         """Dedicated prediction pipeline with specialized ML prompts and data cleaning loops."""
+        self._check_cancelled("prediction:draft_script")
         if status_callback:
             status_callback("🔮 Prediction: Drafting ML regression script...", "info", "opencode", 20)
 
@@ -2902,6 +2919,7 @@ class AgentOrchestrator:
 
         # If OpenCode failed to generate code, escalate to DeepSeek-R1
         if not code or len(code.strip()) < 50:
+            self._check_cancelled("prediction:escalation")
             if status_callback:
                 status_callback("🔮 OpenCode draft empty — escalating to DeepSeek-R1...", "warning", "deepseek_r1", 30)
             ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
@@ -2915,6 +2933,7 @@ class AgentOrchestrator:
         # Execute and verify
         max_attempts = 3
         for attempt in range(max_attempts):
+            self._check_cancelled("prediction:execute")
             if status_callback:
                 status_callback(f"🔮 Executing prediction script (Attempt {attempt+1}/{max_attempts})...", "info", "opencode", 40 + attempt * 20)
             
@@ -2951,6 +2970,7 @@ class AgentOrchestrator:
                 return f"{result}{viz}"
             
             # ── Data cleaning / error fixing loop ──
+            self._check_cancelled("prediction:fix_error")
             if status_callback:
                 status_callback(f"🔮 Fixing data/script error (Round {attempt+1})...", "warning", "opencode", 50 + attempt * 15)
             
@@ -3000,6 +3020,137 @@ class AgentOrchestrator:
         """Deep document analysis using DeepSeek R1 for analysis, data extraction, AND chart generation."""
         import re
         import json
+        import urllib.parse
+
+        # ── Phase 0: Multi-Query Search Expansion ──────────────────────────
+        # A single 80-char search query can't cover multi-entity comparisons.
+        # Use the router LLM to decompose the user's query into 2-4 focused
+        # sub-queries, search each independently, deduplicate, and merge
+        # the scraped data with whatever the initial search already found.
+        try:
+            if status_callback:
+                status_callback("🔬 Decomposing query for deep multi-source search...", "info", "router", 5)
+
+            decompose_prompt = (
+                "You are an expert research planner. Decompose the user's query into 2-4 distinct, "
+                "focused search queries using a multi-hop search strategy to retrieve comprehensive, "
+                "high-fidelity information (e.g., baseline details, benchmark scores, implementation details).\n\n"
+                "RULES:\n"
+                "1. Each sub-query must target a different hop, entity, or specific aspect of the query.\n"
+                "2. Prioritize target domains where benchmark/code/research data is hosted. Specifically:\n"
+                "   - For model performance/evaluations, prefer appending: site:huggingface.co OR site:paperswithcode.com OR site:github.com\n"
+                "   - For scientific details or research papers, prefer appending: site:arxiv.org OR site:semanticscholar.org\n"
+                "   - For general benchmark results, include terms like 'leaderboard', 'dataset', or 'GitHub'.\n"
+                "3. Ensure the queries are highly specific, containing full model/entity names and versions. Avoid generic queries.\n"
+                "4. Output ONLY the queries, one per line. No explanation, no numbering, no bullet points, no markdown formatting.\n\n"
+                f"User Query: {prompt}"
+            )
+            raw_sub_queries = self._call_model(
+                router_llm, decompose_prompt, max_tokens=150, temperature=0.1,
+                system_prompt="You decompose complex research queries into focused sub-queries. Output ONLY search queries, one per line."
+            ).strip()
+
+            # Parse sub-queries: clean up LLM formatting artifacts
+            sub_queries = []
+            for line in raw_sub_queries.split('\n'):
+                cleaned = re.sub(r'^(\d+[\.\)]\s*|-\s*|\*\s*|Query\s*\d*:?\s*)', '', line, flags=re.IGNORECASE).strip()
+                cleaned = cleaned.replace('"', '').replace('`', '').strip()
+                if cleaned and len(cleaned) >= 10 and len(cleaned) <= 200:
+                    sub_queries.append(cleaned)
+
+            # Cap at 4 sub-queries to control latency
+            sub_queries = sub_queries[:4]
+
+            if sub_queries and len(sub_queries) >= 2:
+                if status_callback:
+                    status_callback(f"🔬 Running {len(sub_queries)} targeted searches...", "info", "router", 8)
+
+                # Collect all unique scraped content from sub-queries
+                all_scraped = []
+                seen_domains = set()
+                # Extract domains already present in enriched_prompt to avoid re-scraping
+                existing_urls = re.findall(r'URL:\s*(https?://[^\s\n]+)', enriched_prompt)
+                for url in existing_urls:
+                    try:
+                        netloc = urllib.parse.urlparse(url).netloc.lower()
+                        parts = netloc.split('.')
+                        root = '.'.join(parts[-2:]) if len(parts) >= 2 else netloc
+                        seen_domains.add(root)
+                    except Exception:
+                        pass
+
+                # Social media domains to skip — they almost never have structured data
+                _SKIP_DOMAINS = {
+                    'facebook.com', 'instagram.com', 'twitter.com', 'x.com',
+                    'tiktok.com', 'pinterest.com', 'linkedin.com',
+                    'threads.net', 'bsky.app'
+                }
+
+                for sq_idx, sq in enumerate(sub_queries):
+                    self._check_cancelled("extreme_websearch:query_decomposition")
+                    if status_callback:
+                        status_callback(f"🔬 Searching ({sq_idx+1}/{len(sub_queries)}): {sq[:60]}...", "info", "router", 8 + sq_idx * 3)
+
+                    try:
+                        results = self.web_search.search(sq, max_results=5)
+                        if not results:
+                            continue
+
+                        for r in results:
+                            link = r.get('link', '')
+                            if not link:
+                                continue
+                            try:
+                                netloc = urllib.parse.urlparse(link).netloc.lower()
+                                parts = netloc.split('.')
+                                root = '.'.join(parts[-2:]) if len(parts) >= 2 else netloc
+                            except Exception:
+                                root = link
+
+                            # Skip social media
+                            if root in _SKIP_DOMAINS:
+                                continue
+                            # Skip already-scraped domains
+                            if root in seen_domains:
+                                continue
+                            seen_domains.add(root)
+
+                            if status_callback:
+                                status_callback(f"🔬 Deep scraping: {link[:50]}...", "info", "router", 10 + sq_idx * 3)
+
+                            text = self.web_search.scrape_url(link)
+                            if text and len(text.strip()) > 300:
+                                # Cap per-source to prevent any single page from dominating
+                                capped = text[:6000]
+                                all_scraped.append(
+                                    f"=== START SCRAPED PAGE ===\nURL: {link}\nContent:\n{capped}\n=== END SCRAPED PAGE ==="
+                               )
+
+                            # Stop after collecting enough new sources
+                            if len(all_scraped) >= 8:
+                                break
+                        if len(all_scraped) >= 8:
+                            break
+                    except Exception as e:
+                        print(f"Sub-query search failed for '{sq}': {e}")
+                        continue
+
+                # Merge new scraped data into enriched_prompt
+                if all_scraped:
+                    new_data = "\n\n".join(all_scraped)
+                    enriched_prompt = enriched_prompt + f"\n\n=== ADDITIONAL DEEP-SEARCH RESULTS ===\n{new_data}\n=== END ADDITIONAL RESULTS ==="
+                    if status_callback:
+                        status_callback(f"🔬 Merged {len(all_scraped)} additional sources into analysis context.", "info", "router", 15)
+            else:
+                print(f"Multi-query decomposition returned < 2 sub-queries, skipping expansion.")
+
+        except Exception as e:
+            self._check_cancelled("extreme_websearch:query_decomposition")
+            print(f"Multi-query search expansion failed (non-fatal): {e}")
+            # Non-fatal: fall through to analysis with whatever enriched_prompt we already have
+
+        # ── Cancel check before heavy analysis ──
+        self._check_cancelled("extreme_websearch:document_analysis")
 
         # Phase 1: DeepSeek R1 produces a STRUCTURED, ACCURACY-FIRST analysis report.
         if status_callback:
@@ -3068,6 +3219,9 @@ class AgentOrchestrator:
         if status_callback:
             status_callback("🔬 Analysis complete. Extracting chart data...", "info", "deepseek_r1", 50)
 
+        # ── Cancel check before data extraction ──
+        self._check_cancelled("extreme_websearch:data_extraction")
+
         # Phase 2: Data extraction with cross-validation.
         # The model must verify each value-label pairing is correct.
         data_extraction_prompt = (
@@ -3130,6 +3284,9 @@ class AgentOrchestrator:
 
         if status_callback:
             status_callback("🔬 Generating interactive charts...", "info", "deepseek_r1", 70)
+
+        # ── Cancel check before chart generation ──
+        self._check_cancelled("extreme_websearch:chart_generation")
 
         # Phase 3: DeepSeek R1 generates Plotly chart code directly (no model swap needed).
         chart_json = ""
@@ -3301,7 +3458,7 @@ class AgentOrchestrator:
                         cleaned_parts.append(cl)
                 search_query = " ".join(cleaned_parts)
                 search_query = search_query.replace('"', '').replace('`', '').replace('*', '').strip()
-                search_query = search_query[:80]  # Cap length for search engines
+                search_query = search_query[:160]  # Cap length — 80 was too short for multi-entity queries
                 if not search_query or len(search_query) < 3:
                     search_query = prompt[:80]
 
@@ -4112,6 +4269,7 @@ class AgentOrchestrator:
             max_rounds = 2 if reset == 0 else 1
             for rnd in range(max_rounds):
                 # ── Phase 1: Logic Plan ─────────────────────────────
+                self._check_cancelled("code:draft_logic")
                 is_nuclear = (reset > 0)
                 model_key = "deepseek_r1" if is_nuclear else "vibethinker"
                 model_name = "DeepSeek-R1" if is_nuclear else "VibeThinker"
@@ -4135,6 +4293,7 @@ class AgentOrchestrator:
                 ds_draft = self._strip_thinking(self._call_model(ds_llm, plan_p, gen_tokens, logic_temp, system_prompt=planner_sys))
 
                 # ── Phase 2: Reasoning Sandbox — Verify Logic ────────────────
+                self._check_cancelled("code:verify_logic")
                 use_logic_playground = self._is_playground_applicable(router_llm if router_llm else self._get_model("router", required_ctx=1024), prompt)
                 verified = True
                 pg_out = ""
@@ -4213,6 +4372,7 @@ class AgentOrchestrator:
                     pass
 
                 # ── Phase 3: OpenCode — Write Code ───────────────────────────
+                self._check_cancelled("code:write_code")
                 if status_callback:
                     status_callback(f"OpenCode writing code (Attempt {rnd+1}/{max_rounds})...", "info", "opencode", 50 + rnd*10)
                 oc_llm = self._get_model("opencode", required_ctx=oc_ctx)
@@ -4264,6 +4424,7 @@ class AgentOrchestrator:
                     code = raw_model_output
 
                 # ── Phase 4: Execution Sandbox ───────────────────────────────
+                self._check_cancelled("code:execute_sandbox")
                 if status_callback:
                     status_callback(f"Executing in Sandbox (Attempt {rnd+1}/{max_rounds})...", "info", "sandbox", 60 + rnd*10)
                 if files_dict:
@@ -4718,6 +4879,7 @@ class AgentOrchestrator:
                 vibe_pg_out = ""
                 helper_search_context = ""
                 for rnd in range(max_rounds):
+                    self._check_cancelled("reasoning:draft_answer")
                     is_nuclear = (reset > 0)
                     model_key = "deepseek_r1"
                     model_name = "DeepSeek-R1"
@@ -4745,6 +4907,7 @@ class AgentOrchestrator:
                         draft_p = draft_p[:max_reason_chars]
                     ds_answer = self._strip_thinking(self._call_model(ds_llm, draft_p, gen_tokens, gen_temp, system_prompt=reasoning_sys))
 
+                    self._check_cancelled("reasoning:verify_playground")
                     if status_callback:
                         status_callback(f"Verifying in Reasoning Playground (Attempt {rnd+1}/{max_rounds})...", "info", model_key, 35 + rnd*12)
                     verified, pg_out, test_code = self._run_playground(ds_llm, ds_answer, "reasoning", status_callback=status_callback, model_key=model_key, original_prompt=prompt)
@@ -4797,6 +4960,7 @@ class AgentOrchestrator:
                             pass
                     search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
 
+                    self._check_cancelled("reasoning:correct_reasoning")
                     # Dynamically select correction model: VibeThinker for simple python/code syntax errors, R1 for math/logic
                     err_lower = pg_out.lower() if pg_out else ""
                     is_code_error = any(x in err_lower for x in ["syntaxerror", "indentationerror", "nameerror", "modulenotfounderror", "attributeerror", "typeerror", "zerodivisionerror"])
@@ -4919,6 +5083,7 @@ class AgentOrchestrator:
 
         else:
             # ── Standard LLM Debate (non-testable reasoning) ─────────────
+            self._check_cancelled("reasoning:debate_draft")
             if status_callback:
                 status_callback("DeepSeek-R1 drafting analysis...", "info", "deepseek_r1", 50)
             ds_draft = self._strip_thinking(self._call_model(ds_llm, f"Provide a detailed answer:\n{ds_safe}", gen_tokens, gen_temp, system_prompt=reasoning_sys))

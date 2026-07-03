@@ -206,12 +206,26 @@ async def offload_memory():
     try:
         # Signal any running generation to stop first
         generation_cancel.set()
-        import time
+        
+        # Wait for the active generation thread to actually finish.
+        # The generation thread holds chat_lock; once it's released, we know
+        # the inference_lock inside _call_model is also released and it's safe
+        # to call unload_all_models() without deadlocking.
+        deadline = time.time() + 15  # 15s timeout
+        while time.time() < deadline:
+            if chat_lock.acquire(blocking=False):
+                chat_lock.release()
+                break
+            time.sleep(0.3)
+        
+        # Small grace period to ensure all locks are fully released
         time.sleep(0.5)
+        
         orchestrator.unload_all_models()
         generation_cancel.clear()
         return {"status": "success", "message": "All models offloaded from memory."}
     except Exception as e:
+        generation_cancel.clear()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/load_all")
