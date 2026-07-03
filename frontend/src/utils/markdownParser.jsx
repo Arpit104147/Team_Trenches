@@ -91,6 +91,12 @@ export const parseAndRenderSegment = (segment) => {
           if (trimmed === "---") {
             return <hr key={j} className="md-hr" />;
           }
+          if (line.startsWith("##### ")) {
+            return <h5 key={j} className="md-h5">{renderInlineElements(line.slice(6))}</h5>;
+          }
+          if (line.startsWith("#### ")) {
+            return <h4 key={j} className="md-h4">{renderInlineElements(line.slice(5))}</h4>;
+          }
           if (line.startsWith("### ")) {
             return <h3 key={j} className="md-h3">{renderInlineElements(line.slice(4))}</h3>;
           }

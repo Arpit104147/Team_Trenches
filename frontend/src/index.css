@@ -1148,7 +1148,9 @@ html, body {
 
 .md-h1,
 .md-h2,
-.md-h3 {
+.md-h3,
+.md-h4,
+.md-h5 {
   color: #ffffff;
   font-weight: 600;
   margin: 18px 0 10px;
@@ -1167,6 +1169,18 @@ html, body {
 
 .md-h3 {
   font-size: 1.125rem;
+}
+
+.md-h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.md-h5 {
+  font-size: 0.925rem;
+  font-weight: 600;
+  color: #c0c0c0;
 }
 
 .md-p {

@@ -2998,47 +2998,93 @@ class AgentOrchestrator:
     def _extreme_websearch_pipeline(self, prompt, enriched_prompt, router_llm,
                                      router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         """Deep document analysis using DeepSeek R1 + chart generation using OpenCodeInterpreter."""
-        # Phase 1: DeepSeek R1 analyzes the scraped web data
+        # Phase 1: DeepSeek R1 produces a CLEAN user-facing analysis report
+        # NO code blocks, NO JSON, NO raw data dumps — just a readable report
+        # that DIRECTLY answers the user's question.
         if status_callback:
             status_callback("🔬 DeepSeek R1: Analyzing documents & structuring data...", "info", "deepseek_r1", 20)
 
         ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
         
         analysis_prompt = (
-            f"You are a senior research analyst. Analyze the following web data thoroughly.\n\n"
-            f"TASK:\n"
-            f"1. Compare all data sources and identify key metrics, statistics, and trends.\n"
-            f"2. Structure your findings into a clear, data-driven report with sections.\n"
-            f"3. Extract numerical data that can be visualized (percentages, counts, rankings).\n"
-            f"4. At the END of your report, output a JSON block with chart-ready data:\n"
-            f'```json\n{{"charts": [{{"type": "pie|bar|line", "title": "...", "labels": [...], "values": [...]}}]}}\n```\n\n'
+            f"You are a senior research analyst. Analyze the following web data and write a "
+            f"comprehensive report that DIRECTLY answers the user's question.\n\n"
+            f"STRICT FORMATTING RULES:\n"
+            f"1. Write a clear, readable report using markdown headings (## and ###), bullet points, and bold text.\n"
+            f"2. Include key metrics, statistics, and comparisons as formatted text (NOT as JSON or code blocks).\n"
+            f"3. Use markdown tables (| Header | Header |) for structured comparisons — NEVER raw JSON.\n"
+            f"4. Do NOT output any ```json```, ```python```, or any other code blocks.\n"
+            f"5. Do NOT output raw data structures, arrays, or JSON objects.\n"
+            f"6. End with a clear '## Conclusion' section that directly answers the user's question "
+            f"with a definitive verdict or summary.\n"
+            f"7. Stick to the EXACT model names, versions, and terms the user asked about. "
+            f"Do NOT substitute similar model names or versions (e.g. if the user asks about 'v4.6', "
+            f"report on v4.6 specifically, not v4.7 or v4.8). If the exact version data is unavailable "
+            f"in the web data, explicitly state that and report the closest available data.\n\n"
             f"User Question: {prompt}\n\n"
             f"Web Data:\n{enriched_prompt[:8000]}"
         )
 
         analysis = self._strip_thinking(
             self._call_model(ds_llm, analysis_prompt, gen_tokens, 0.6,
-                           system_prompt="You are a world-class research analyst. Provide comprehensive, data-driven analysis.")
+                           system_prompt="You are a world-class research analyst. Write clear, readable reports. Never output code or JSON.")
         )
+
+        # ── Post-process: strip any leaked code/JSON blocks from the analysis ──
+        # The model sometimes ignores instructions and outputs ```json``` or
+        # ```python``` blocks. Remove them so the user sees clean text only.
+        import re
+        analysis = re.sub(
+            r'```(?:json|python|javascript|js|text)?\s*\n[\s\S]*?```',
+            '', analysis
+        ).strip()
 
         if status_callback:
             status_callback("🔬 Analysis complete. Generating interactive charts...", "info", "opencode", 60)
 
-        # Phase 2: OpenCodeInterpreter generates Plotly charts from the analysis
+        # Phase 2: Separate data-extraction pass for chart generation.
+        # Ask DeepSeek R1 to extract ONLY numerical data from the analysis as JSON.
+        data_extraction_prompt = (
+            f"Extract all numerical comparison data from this analysis report as a JSON object.\n\n"
+            f"Output ONLY a valid JSON object in this exact format, nothing else:\n"
+            f'{{"charts": [{{"type": "bar", "title": "Chart Title", "labels": ["A", "B"], "values": [10, 20]}}]}}\n\n'
+            f"Rules:\n"
+            f"- Extract every metric/benchmark comparison as a separate chart entry.\n"
+            f"- Use 'bar' for comparisons, 'pie' for proportions, 'line' for trends.\n"
+            f"- Output ONLY the JSON — no explanations, no markdown, no code fences.\n\n"
+            f"Analysis Report:\n{analysis[:4000]}"
+        )
+
+        chart_data_raw = self._strip_thinking(
+            self._call_model(ds_llm, data_extraction_prompt, 1024, 0.1,
+                           system_prompt="You extract data as JSON. Output ONLY valid JSON, nothing else.")
+        )
+
+        # Phase 3: OpenCodeInterpreter generates Plotly charts from extracted data
         coder_llm = self._get_model("opencode", required_ctx=oc_ctx)
         
+        # Clean the chart data JSON (remove code fences if model wrapped it)
+        chart_data_clean = re.sub(r'```(?:json)?\s*\n?', '', chart_data_raw).strip()
+        # Find the JSON object
+        json_start = chart_data_clean.find('{')
+        json_end = chart_data_clean.rfind('}')
+        if json_start != -1 and json_end != -1:
+            chart_data_clean = chart_data_clean[json_start:json_end+1]
+        
         chart_prompt = (
-            f"Based on this analysis report, write a Python script that creates interactive Plotly charts.\n\n"
+            f"Write a Python script that creates interactive Plotly charts from this data.\n\n"
+            f"CHART DATA (JSON):\n{chart_data_clean[:3000]}\n\n"
             f"RULES:\n"
-            f"1. Import plotly.graph_objects as go, numpy as np, json\n"
-            f"2. Create pie charts, bar charts, or line charts based on the data in the report.\n"
-            f"3. Use template='plotly_dark' and glassmorphic styling. Ensure margins are sufficient (especially the left margin `l=120` or `l=150` for horizontal bar charts or long category names) so that labels are never cut off.\n"
-            f"4. If the report contains a JSON chart data block, parse and use it directly.\n"
-            f"5. If no JSON block exists, extract numbers from the text and create appropriate charts.\n"
-            f"6. Last line MUST be: print(fig.to_json())\n"
-            f"7. Do NOT use fig.show() or save to file.\n\n"
-            f"Analysis Report:\n{analysis[:4000]}\n\n"
-            f"Output ONLY the script in ```python``` blocks."
+            f"1. Import plotly.graph_objects as go and json\n"
+            f"2. Parse the chart data JSON above.\n"
+            f"3. For each chart entry, create the appropriate chart type (bar/pie/line).\n"
+            f"4. If there are multiple charts, use plotly.subplots.make_subplots.\n"
+            f"5. Use template='plotly_dark' and glassmorphic styling with sufficient margins "
+            f"(l=120, r=40, t=60, b=40) so labels are never cut off.\n"
+            f"6. Use vibrant colors: #00d2ff, #7c3aed, #22c55e, #f59e0b, #ef4444, #ec4899.\n"
+            f"7. Last line MUST be: print(fig.to_json())\n"
+            f"8. Do NOT use fig.show() or save to file.\n\n"
+            f"Output ONLY the Python script inside ```python``` blocks."
         )
 
         chart_code = Sandbox.extract_code(self._strip_thinking(
@@ -3071,7 +3117,7 @@ class AgentOrchestrator:
         if status_callback:
             status_callback("🔬 Extreme WebSearch Analysis complete!", "success", "deepseek_r1", 100)
 
-        # Build the final response
+        # Build the final response — clean analysis text + embedded chart
         result = f"## 🔬 Deep Analysis Report\n\n{analysis}\n\n"
         if chart_json:
             result += f"## Interactive Analysis Charts\n<!--PLOTLY_JSON-->\n{chart_json}\n<!--/PLOTLY_JSON-->\n"
