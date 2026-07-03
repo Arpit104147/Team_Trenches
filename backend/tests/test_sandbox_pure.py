@@ -116,5 +116,48 @@ class TestDetectLanguage:
         assert lang == "bash"
 
 
+# ---------------------------------------------------------------------------
+# Sandbox workspace tracking and cleanup
+# ---------------------------------------------------------------------------
+class TestSandboxWorkspaceCleanup:
+    def setup_method(self):
+        self.sb = Sandbox(timeout=5)
+
+    def test_workspace_tracking_and_cleanup(self):
+        # 1. Verify sandbox starts with empty active_workspaces
+        assert len(self.sb.active_workspaces) == 0
+
+        # 2. Run execute_workspace and check that temp directory is tracked
+        success, logs, temp_dir = self.sb.execute_workspace({"hello.txt": "world"})
+        assert success
+        assert temp_dir in self.sb.active_workspaces
+        assert os.path.exists(temp_dir)
+        assert os.path.exists(os.path.join(temp_dir, "hello.txt"))
+
+        # 3. Clean workspace and check it is deleted and untracked
+        self.sb.clean_workspace(temp_dir)
+        assert temp_dir not in self.sb.active_workspaces
+        assert not os.path.exists(temp_dir)
+
+    def test_clean_all_workspaces(self):
+        success1, logs1, temp_dir1 = self.sb.execute_workspace({"foo.txt": "1"})
+        success2, logs2, temp_dir2 = self.sb.execute_workspace({"bar.txt": "2"})
+        assert temp_dir1 in self.sb.active_workspaces
+        assert temp_dir2 in self.sb.active_workspaces
+
+        self.sb.clean_all_workspaces()
+        assert len(self.sb.active_workspaces) == 0
+        assert not os.path.exists(temp_dir1)
+        assert not os.path.exists(temp_dir2)
+
+    def test_exception_cleanup(self):
+        # Passing None to files_dict triggers AttributeError in files_dict.items()
+        success, logs, temp_dir = self.sb.execute_workspace(None)
+        assert not success
+        # The temp_dir must have been cleaned up and not be in active_workspaces
+        assert temp_dir not in self.sb.active_workspaces
+        assert not os.path.exists(temp_dir)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

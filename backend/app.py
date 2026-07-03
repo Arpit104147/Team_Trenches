@@ -388,6 +388,10 @@ async def chat(request: ChatRequest):
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        finally:
+            generation_cancel.set()
+            if 'thread' in locals() and thread.is_alive():
+                thread.join()
 
     return StreamingResponse(response_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

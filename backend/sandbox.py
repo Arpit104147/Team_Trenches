@@ -418,6 +418,27 @@ print(json.dumps(result))
 class Sandbox:
     def __init__(self, timeout=300):
         self.timeout = timeout
+        self.active_workspaces = set()
+
+    def clean_workspace(self, temp_dir):
+        """Clean up a specific workspace directory and remove it from tracking."""
+        if temp_dir in self.active_workspaces:
+            self.active_workspaces.discard(temp_dir)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def clean_all_workspaces(self):
+        """Clean up all tracked workspace directories."""
+        for temp_dir in list(self.active_workspaces):
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        self.active_workspaces.clear()
+
+    def __del__(self):
+        try:
+            self.clean_all_workspaces()
+        except Exception:
+            pass
 
     # ── Utility Methods ──────────────────────────────────────────────────
     @staticmethod
@@ -1063,6 +1084,7 @@ class Sandbox:
         Returns (success: bool, logs: str, temp_dir_path: str).
         """
         temp_dir = tempfile.mkdtemp(prefix="workspace_sandbox_")
+        self.active_workspaces.add(temp_dir)
         output_log = []
         success = True
         temp_dir_real = os.path.realpath(temp_dir)
@@ -1214,6 +1236,12 @@ class Sandbox:
             return success, "\n".join(output_log), temp_dir
 
         except Exception as e:
+            if temp_dir:
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                self.active_workspaces.discard(temp_dir)
             return False, f"Workspace sandbox error: {str(e)}", temp_dir
 
     @staticmethod

@@ -48,6 +48,10 @@ class TransformerWrapper:
         self.device = device
         self.cancel_event = cancel_event  # threading.Event set by /api/cancel
 
+    @property
+    def _n_gpu_layers(self):
+        return -1 if self.device in ["cuda", "xpu"] else 0
+
     def __call__(self, prompt, max_tokens=512, temperature=0.7, system_prompt=None):
         if isinstance(prompt, str):
             # Convert raw strings into proper conversational format so the model doesn't hallucinate
@@ -236,6 +240,24 @@ class AgentOrchestrator:
         print(f"🧠 DMA: Detected {self.total_ram_gb:.0f} GB RAM → "
               f"Safety threshold = {self.ram_safety_gb:.1f} GB "
               f"(evict when free < {self.ram_safety_gb:.1f} GB)")
+
+    def _is_gpu_resident(self, model_obj):
+        """True if any layers are on GPU. n_gpu_layers: -1 = ALL layers on GPU,
+        >0 = partial offload, 0 = pure CPU. NEVER compare with '> 0'."""
+        return getattr(model_obj, "_n_gpu_layers", 0) != 0
+
+    def _empty_gpu_caches(self):
+        if torch:
+            try:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            try:
+                if hasattr(torch, "xpu") and torch.xpu.is_available():
+                    torch.xpu.empty_cache()
+            except Exception:
+                pass
 
     def update_settings(self, **kwargs):
         for k, v in kwargs.items():
@@ -481,20 +503,17 @@ class AgentOrchestrator:
         if not self.model_access_order:
             return False
 
-        # When offloading to CPU (VRAM pressure), skip models that are already
-        # on CPU — evicting them would not free any VRAM and would cause
-        # unnecessary reload churn.  Walk the LRU list to find the first
-        # GPU-resident model.  If none exist, fall through to evict the
-        # true LRU (which will be a CPU model) to free system RAM.
         lru_key = None
         if offload_to_cpu:
             for candidate in list(self.model_access_order):
                 candidate_obj = self.loaded_models.get(candidate)
-                if candidate_obj and getattr(candidate_obj, "_n_gpu_layers", 0) > 0:
+                # FIX Bug 1: use != 0 semantics (handles n_gpu_layers = -1)
+                if candidate_obj is not None and self._is_gpu_resident(candidate_obj):
                     lru_key = candidate
                     break
-        # Fallback: pick the true LRU (oldest) regardless of device
-        if lru_key is None:
+            if lru_key is None:
+                return False
+        else:
             lru_key = self.model_access_order[0]
 
         self.model_access_order.remove(lru_key)
@@ -502,36 +521,33 @@ class AgentOrchestrator:
         if model_obj is None:
             return False
 
-        current_gpu_layers = getattr(model_obj, "_n_gpu_layers", 0)
-        
-        # Check if we should offload to CPU instead of fully closing
+        on_gpu = self._is_gpu_resident(model_obj)          # FIX Bug 1
         est_size = self._estimate_model_size_gb(lru_key)
         free_ram = self._get_ram_free_gb()
-        
+
         should_offload = (
             offload_to_cpu and
             not getattr(self, 'kaggle_hotswap_mode', False) and
-            current_gpu_layers > 0 and
+            on_gpu and                                      # FIX Bug 1 (was: current_gpu_layers > 0)
             (free_ram - est_size) > self.ram_safety_gb
         )
-        
+
         if should_offload:
             print(f"🧹 DMA-LRU: Offloading '{lru_key}' from VRAM to System RAM (CPU)...")
-            ctx_size = getattr(model_obj, "n_ctx", lambda: 2048)()
+            ctx_size = model_obj.n_ctx() if hasattr(model_obj, "n_ctx") else 2048
             with self.inference_lock:
                 self._close_model(model_obj, lru_key)
                 del model_obj
             gc.collect()
-            
-            # Load the model on CPU (with recursion guard to prevent
-            # _check_memory_pressure from re-entering this function)
+            self._empty_gpu_caches()
+            time.sleep(1.0)  # FIX Bug 4: let llama.cpp async cudaFree settle
+
             try:
                 self._in_offload_reload = True
                 self._load_model_synchronized(lru_key, required_ctx=ctx_size, force_cpu=True)
                 print(f"  ✅ Offloaded '{lru_key}' to CPU. RAM now: {self._get_ram_free_gb():.1f} GB free")
             except Exception as e:
                 print(f"⚠️ Failed to load '{lru_key}' on CPU during offload: {e}")
-                # Model is already closed; eviction still freed VRAM.
             finally:
                 self._in_offload_reload = False
             return True
@@ -541,17 +557,8 @@ class AgentOrchestrator:
                 self._close_model(model_obj, lru_key)
                 del model_obj
             gc.collect()
-            if torch:
-                try:
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except Exception:
-                    pass
-                try:
-                    if hasattr(torch, "xpu") and torch.xpu.is_available():
-                        torch.xpu.empty_cache()
-                except Exception:
-                    pass
+            self._empty_gpu_caches()
+            time.sleep(1.0)  # FIX Bug 4
             print(f"  ✅ Evicted '{lru_key}'. RAM now: {self._get_ram_free_gb():.1f} GB free")
             return True
 
@@ -690,81 +697,53 @@ class AgentOrchestrator:
 
     def unload_all_models(self):
         """Nuclear option: deterministically unload every cached model."""
-        with self.inference_lock:
-            for key in list(self.loaded_models.keys()):
-                model_obj = self.loaded_models[key]
-                self._close_model(model_obj, key)
-                del self.loaded_models[key]
-            
-            self.loaded_models.clear()
-            self.model_access_order.clear()
+        with self.model_lock:
+            with self.inference_lock:
+                for key in list(self.loaded_models.keys()):
+                    model_obj = self.loaded_models[key]
+                    self._close_model(model_obj, key)
+                    del self.loaded_models[key]
+                
+                self.loaded_models.clear()
+                self.model_access_order.clear()
         gc.collect()
-        
-        if torch:
-            try:
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except Exception:
-                pass
-            try:
-                if hasattr(torch, "xpu") and torch.xpu.is_available():
-                    torch.xpu.empty_cache()
-            except Exception:
-                pass
+        self._empty_gpu_caches()
 
     def _get_model(self, model_key, required_ctx=None, force_cpu=False):
         """Load a model with Dynamic Memory Allocator protection and dynamic context sizing."""
         if required_ctx is None:
             required_ctx = self.context_length if self.context_length > 0 else 8192
 
-
-        # CRITICAL SEGFAULT PREVENTION: llama.cpp has a known C-level double-free segfault
-        # when a GGUF model is closed and re-initialized in the same process to expand context.
-        # To completely prevent this, we enforce that on GPUs, the model is ALWAYS loaded with
-        # its maximum safe context ceiling (ceiling) right from the start. This ensures the model
-        # is loaded exactly once at its full capacity and NEVER has to be unloaded/reloaded to expand.
         is_cpu = (self.device_mode == "cpu" or force_cpu)
-        if not is_cpu:
-            ceiling = self._get_dynamic_context_ceiling(model_key)
-            required_ctx = ceiling
-        else:
-            required_ctx = max(8192, required_ctx)
 
-        # Check if already loaded
-        if model_key in self.loaded_models:
-            model_obj = self.loaded_models[model_key]
-            current_gpu_layers = getattr(model_obj, "_n_gpu_layers", 0)
-            
-            # Case 1: We want it on GPU (not force_cpu and device_mode != cpu) but it's currently on CPU (RAM)
-            if (self.device_mode != "cpu" and not force_cpu) and current_gpu_layers == 0:
-                print(f"🔄 EVM (RAM -> VRAM Swap): Swapping '{model_key}' from System RAM to GPU VRAM for active inference...")
-                with self.model_lock:
-                    # Unload CPU version
-                    self.loaded_models.pop(model_key, None)
-                    if model_key in self.model_access_order:
-                        self.model_access_order.remove(model_key)
-                    self._close_model(model_obj, model_key)
-                    del model_obj
-                    gc.collect()
-            # Case 2: We want it on CPU (force_cpu or device_mode == cpu) but it's currently on GPU (VRAM)
-            elif (force_cpu or self.device_mode == "cpu") and current_gpu_layers > 0:
-                print(f"🔄 EVM (VRAM -> RAM Swap): Swapping '{model_key}' from VRAM down to System RAM...")
-                with self.model_lock:
-                    # Unload GPU version
-                    self.loaded_models.pop(model_key, None)
-                    if model_key in self.model_access_order:
-                        self.model_access_order.remove(model_key)
-                    self._close_model(model_obj, model_key)
-                    del model_obj
-                    gc.collect()
-            else:
-                # Fast path: already loaded with correct target and sufficient context
-                if not (hasattr(model_obj, "n_ctx") and required_ctx > model_obj.n_ctx()):
-                    self._touch_model(model_key)
-                    return model_obj
-
-        # Synchronize load operations across all threads
         with self.model_lock:
+            if model_key in self.loaded_models:
+                model_obj = self.loaded_models[model_key]
+                on_gpu = self._is_gpu_resident(model_obj)
+                needs_swap = (not is_cpu and not on_gpu) or (is_cpu and on_gpu)
+
+                if not needs_swap:
+                    if not (hasattr(model_obj, "n_ctx") and required_ctx > model_obj.n_ctx()):
+                        self._touch_model(model_key)
+                        return model_obj
+                else:
+                    direction = "RAM → VRAM" if not is_cpu else "VRAM → RAM"
+                    print(f"🔄 DMA Swap ({direction}): Swapping '{model_key}'...")
+                    with self.inference_lock:
+                        self.loaded_models.pop(model_key, None)
+                        if model_key in self.model_access_order:
+                            self.model_access_order.remove(model_key)
+                        self._close_model(model_obj, model_key)
+                        del model_obj
+                    gc.collect()
+                    self._empty_gpu_caches()
+                    time.sleep(1.0)
+
+            if not is_cpu:
+                required_ctx = self._get_dynamic_context_ceiling(model_key)
+            else:
+                required_ctx = max(8192, required_ctx)
+
             return self._load_model_synchronized(model_key, required_ctx, force_cpu)
 
     def _load_model_synchronized(self, model_key, required_ctx=None, force_cpu=False):
@@ -810,7 +789,7 @@ class AgentOrchestrator:
         if getattr(self, 'kaggle_hotswap_mode', False) and not force_cpu and self.loaded_models:
             models_to_evict = [
                 mk for mk, m in list(self.loaded_models.items())
-                if mk != model_key and getattr(m, "_n_gpu_layers", -1) != 0
+                if mk != model_key and self._is_gpu_resident(m)
             ]
             if models_to_evict:
                 with self.inference_lock:
@@ -967,8 +946,9 @@ class AgentOrchestrator:
             from transformers import AutoModelForCausalLM, AutoTokenizer
             model_dir = os.path.dirname(model_path) if model_path.endswith('.safetensors') else model_path
             
+            # FIX Bug 3: Respect force_cpu parameter for Hugging Face models
             device = "cpu"
-            if self.device_mode != "cpu" and torch:
+            if self.device_mode != "cpu" and not force_cpu and torch:
                 if torch.cuda.is_available():
                     device = "cuda"
                 elif hasattr(torch, "xpu") and torch.xpu.is_available():
@@ -1679,7 +1659,8 @@ class AgentOrchestrator:
         self._check_cancelled()
 
         if isinstance(llm, TransformerWrapper):
-            return llm(prompt, max_tokens=max_tokens, temperature=temperature, system_prompt=system_prompt)
+            with self.inference_lock:
+                return llm(prompt, max_tokens=max_tokens, temperature=temperature, system_prompt=system_prompt)
             
         # Context overflow protection for llama-cpp-python
         if hasattr(llm, "n_ctx"):
@@ -1703,13 +1684,11 @@ class AgentOrchestrator:
             absolute_min = min(absolute_min, max(256, ctx - 128))
             
             if est_prompt_tokens + max_tokens > ctx:
-                # Calculate the hard ceiling: how many tokens are genuinely free
                 available = ctx - est_prompt_tokens - 50
-                if available < 64:
-                    available = 64
-                # Use the larger of absolute_min and available, but NEVER exceed available
-                # The old bug: max(absolute_min, available) could return absolute_min > available → OOM
-                max_tokens = min(max(absolute_min, available), available)
+                if available >= absolute_min:
+                    max_tokens = min(max_tokens, available)
+                else:
+                    max_tokens = min(max_tokens, absolute_min)
             
             # If even with minimum generation tokens the prompt doesn't fit, truncate the prompt semantically
             max_prompt_tokens = ctx - max_tokens - 120
@@ -1774,18 +1753,21 @@ class AgentOrchestrator:
                 temperature=temperature,
                 stream=True
             )
-            
             content_pieces = []
-            for chunk in chunks:
-                self._check_cancelled()
-                
-                choices = chunk.get('choices', [])
-                if choices:
-                    delta = choices[0].get('delta', {})
-                    content = delta.get('content', '')
-                    if content:
-                        content_pieces.append(content)
-                        
+            try:
+                for chunk in chunks:
+                    self._check_cancelled()
+                    choices = chunk.get('choices', [])
+                    if choices:
+                        delta = choices[0].get('delta', {})
+                        content = delta.get('content', '')
+                        if content:
+                            content_pieces.append(content)
+            finally:
+                try:
+                    chunks.close()
+                except Exception:
+                    pass
             return "".join(content_pieces)
 
     # =========================================================================
@@ -3350,8 +3332,11 @@ class AgentOrchestrator:
         # for follow-up commands like "generate 3d" that need the previous response.
         try:
             result = self._process_query_impl(prompt, mode, selected_models, status_callback)
-        except Exception:
-            raise
+        finally:
+            try:
+                self.sandbox.clean_all_workspaces()
+            except Exception:
+                pass
         try:
             # Store only if this wasn't itself a "generate 3d" follow-up.
             _p = prompt.strip().lower().rstrip("?.!")
@@ -3956,6 +3941,7 @@ class AgentOrchestrator:
             "Never remove existing functionality. Only enhance visual design."
         )
 
+        polish_dir = None
         try:
             oc_llm = self._get_model("opencode", required_ctx=oc_ctx)
             polished_output = self._strip_thinking(
@@ -3969,15 +3955,11 @@ class AgentOrchestrator:
                 # Validate that the polished output still runs in sandbox
                 polish_ok, polish_log, polish_dir = self.sandbox.execute_workspace(polished_files)
                 if polish_ok:
-                    import shutil
-                    shutil.rmtree(polish_dir, ignore_errors=True)
                     if status_callback:
                         status_callback("✨ Aesthetic Reflexion: Design polished successfully!", "success", "opencode", 82)
                     return polished_files
                 else:
                     # Polished version broke something — keep original
-                    if polish_dir:
-                        shutil.rmtree(polish_dir, ignore_errors=True)
                     if status_callback:
                         status_callback("Aesthetic Reflexion: Polish failed sandbox — keeping original.", "warning", "opencode", 82)
             else:
@@ -3986,6 +3968,10 @@ class AgentOrchestrator:
         except Exception as e:
             if status_callback:
                 status_callback(f"Aesthetic Reflexion skipped: {str(e)[:80]}", "warning", "opencode", 82)
+        finally:
+            if polish_dir:
+                import shutil
+                shutil.rmtree(polish_dir, ignore_errors=True)
 
         return files_dict
 
