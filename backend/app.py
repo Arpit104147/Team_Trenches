@@ -321,7 +321,15 @@ async def chat(request: ChatRequest):
                 if model:
                     payload["model"] = model
                 if progress is not None:
-                    payload["progress"] = progress
+                    try:
+                        prog_val = int(progress)
+                        if lvl == "success":
+                            prog_val = min(100, max(0, prog_val))
+                        else:
+                            prog_val = min(99, max(0, prog_val))
+                        payload["progress"] = prog_val
+                    except (ValueError, TypeError):
+                        payload["progress"] = progress
                 q.put(payload)
 
             def run_orchestrator():

@@ -6,6 +6,15 @@ import time
 try:
     import psutil
 except ImportError:
+    import sys
+    if sys.platform != 'linux' and not os.path.exists('/proc/meminfo'):
+        print(f"⚠️ [Startup Warning] psutil is not installed and /proc/meminfo is not available on {sys.platform}. "
+              "Memory manager will use static virtual memory defaults (16GB total, 8GB available). "
+              "Run 'pip install psutil' to enable active memory tracking.")
+    else:
+        print("⚠️ [Startup Warning] psutil is not installed. Falling back to reading /proc/meminfo. "
+              "Run 'pip install psutil' to enable more robust memory tracking.")
+
     class MockVirtualMemory:
         def __init__(self):
             self.total = 16 * (1024 ** 3)
@@ -42,11 +51,20 @@ except ImportError:
 class TransformerWrapper:
     """Wrapper that holds model + tokenizer refs so the Dynamic Memory Allocator
     can deterministically delete them and free GPU/RAM on eviction."""
-    def __init__(self, model, tokenizer, device, cancel_event=None):
+    def __init__(self, model, tokenizer, device, orchestrator=None):
+        import weakref
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
-        self.cancel_event = cancel_event  # threading.Event set by /api/cancel
+        self._orchestrator_ref = weakref.ref(orchestrator) if orchestrator is not None else None
+
+    @property
+    def cancel_event(self):
+        if self._orchestrator_ref:
+            orch = self._orchestrator_ref()
+            if orch:
+                return getattr(orch, "cancel_event", None)
+        return None
 
     @property
     def _n_gpu_layers(self):
@@ -981,7 +999,7 @@ class AgentOrchestrator:
                     trust_remote_code=True
                 )
             
-            wrapper = TransformerWrapper(model, tokenizer, device, cancel_event=self.cancel_event)
+            wrapper = TransformerWrapper(model, tokenizer, device, orchestrator=self)
             self.loaded_models[model_key] = wrapper
             self._touch_model(model_key)
             print(f"✅ Loaded Transformers model '{model_key}' on {device}")
@@ -1578,7 +1596,7 @@ class AgentOrchestrator:
         start_lines = []
         start_chars = 0
         in_code_block = False
-        while lines and (start_chars < top_char_budget or in_code_block):
+        while lines and (start_chars < top_char_budget or (in_code_block and any(l.strip().startswith("```") for l in lines))):
             line = lines.pop(0)
             if line.strip().startswith("```"):
                 in_code_block = not in_code_block
@@ -4399,15 +4417,13 @@ class AgentOrchestrator:
                 files_dict = None
                 if req_lang == "html":
                     files_dict = Sandbox.parse_multi_file_manifest(raw_model_output)
-
-                # Extract code (for non-HTML or if no <file> tags were found)
-                if not files_dict:
-                    code = Sandbox.extract_code(raw_model_output)
-                    # Last-resort: try parsing extracted code for <file> tags too
-                    files_dict = Sandbox.parse_multi_file_manifest(code)
+                    if not files_dict:
+                        code = Sandbox.extract_code(raw_model_output)
+                        files_dict = Sandbox.parse_multi_file_manifest(code)
+                    else:
+                        code = raw_model_output
                 else:
-                    # For multi-file HTML, set 'code' to raw output for error reporting
-                    code = raw_model_output
+                    code = Sandbox.extract_code(raw_model_output)
 
                 # ── Phase 4: Execution Sandbox ───────────────────────────────
                 self._check_cancelled("code:execute_sandbox")

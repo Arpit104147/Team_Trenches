@@ -42,7 +42,7 @@ crash_log.txt
 server_logs.txt
 
 # Scratch test files & embedded repos
-test_*.py
+/test_*.py
 agentic_benchmark_prompt.txt
 BitNet/
 *.md
