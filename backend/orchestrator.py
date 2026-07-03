@@ -3369,8 +3369,23 @@ class AgentOrchestrator:
                 "about not having internet access. Answer as a live, fully-connected AI.\n\n"
             )
 
-        # Retrieve relevant past experiences from memory/RAG early
-        past_experience = self.memory.recall(prompt, n_results=2)
+        # Retrieve relevant past experiences from memory/RAG early.
+        # Skip RAG recall for very short/conversational queries — they are
+        # guaranteed SIMPLE and RAG noise (e.g. old coding exercises) would
+        # pollute the response with irrelevant code snippets.
+        prompt_stripped = prompt.strip().lower()
+        _skip_rag = (
+            len(prompt_stripped.split()) <= 4 or
+            len(prompt_stripped) < 25 or
+            prompt_stripped.rstrip('!?.') in {
+                "hi", "hello", "hey", "yo", "sup", "hii", "hiii",
+                "good morning", "good afternoon", "good evening",
+                "how are you", "who are you", "what is your name",
+                "thanks", "thank you", "bye", "goodbye", "ok", "okay",
+                "help", "help me", "what can you do", "tell me a joke"
+            }
+        )
+        past_experience = "" if _skip_rag else self.memory.recall(prompt, n_results=2)
         
         # Build structured context blocks
         context_blocks = []
@@ -3506,7 +3521,19 @@ class AgentOrchestrator:
             if status_callback:
                 status_callback("Answering directly...", "success", "router", 100)
             simple_gen_tokens = min(512, self.max_tokens)
-            safe = self._crunch_prompt(enriched_prompt, "router", router_ctx - simple_gen_tokens, status_callback, router_llm=router_llm)
+            # Build a CLEAN prompt for SIMPLE responses — strip out any RAG
+            # context that may have been injected into enriched_prompt.
+            # RAG memories (past coding exercises, derivations) are irrelevant
+            # for greetings, factual questions, and conversational queries,
+            # and their presence causes the model to hallucinate code output.
+            simple_prompt = (
+                f"{system_instruction}Current System Date/Time: {current_date}\n\n"
+            )
+            # Keep web context if available (useful for factual/news queries)
+            if web_context:
+                simple_prompt += f"Web Context:\n{web_context}\n\n"
+            simple_prompt += f"User Query:\n{prompt}"
+            safe = self._crunch_prompt(simple_prompt, "router", router_ctx - simple_gen_tokens, status_callback, router_llm=router_llm)
             res = self._call_model(router_llm, safe, max_tokens=simple_gen_tokens, temperature=0.6)
             return self._clean_cutoff_notes(res)
 

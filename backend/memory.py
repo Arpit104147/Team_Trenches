@@ -95,36 +95,57 @@ class Memory:
         # Try ChromaDB query first
         if self.use_chroma:
             try:
-                results = self.collection.query(query_texts=[task], n_results=n_results * 2)  # Fetch extra to filter
+                results = self.collection.query(
+                    query_texts=[task],
+                    n_results=n_results * 2,  # Fetch extra to filter
+                    include=["documents", "metadatas", "distances"]
+                )
                 if results and results.get('documents') and results['documents'][0]:
                     docs = results['documents'][0]
                     metadatas = results.get('metadatas', [[]])[0] if results.get('metadatas') else []
+                    distances = results.get('distances', [[]])[0] if results.get('distances') else []
                     
-                    # Prioritize solution memories over mistake logs
-                    solutions = []
-                    mistakes = []
+                    # ChromaDB returns L2 distances by default. Convert to
+                    # approximate cosine similarity: cos ≈ 1 - (d² / 2) for
+                    # unit-normed embeddings. Filter out noise below threshold.
+                    filtered_docs = []
                     for i, doc in enumerate(docs):
+                        if i < len(distances):
+                            l2_dist = distances[i]
+                            approx_cosine = 1.0 - (l2_dist ** 2) / 2.0
+                            if approx_cosine < MIN_VECTOR_SCORE:
+                                continue  # Below similarity threshold — noise
                         meta = metadatas[i] if i < len(metadatas) else {}
-                        if meta.get('type') == 'mistake_fix':
-                            mistakes.append(doc)
-                        else:
-                            solutions.append(doc)
+                        filtered_docs.append((doc, meta))
                     
-                    # Use solutions first, add at most 1 mistake pattern for context
-                    filtered = solutions[:n_results]
-                    if len(filtered) < n_results and mistakes:
-                        filtered.append(mistakes[0])
-                    
-                    if not filtered:
-                        filtered = docs[:n_results]
-                    
-                    memories = "\n---\n".join(filtered)
-                    # Limit memory injection to prevent Context Window OOM
-                    if len(memories) > 3000:
-                        cutoff = memories.rfind('\n\n', 0, 3000)
-                        cutoff = cutoff if cutoff != -1 else 3000
-                        memories = memories[:cutoff] + "\n\n... [TRUNCATED]"
-                    return f"\n\nRelevant past experience:\n{memories}\n"
+                    if not filtered_docs:
+                        # No hits above threshold — fall through to keyword search
+                        pass
+                    else:
+                        # Prioritize solution memories over mistake logs
+                        solutions = []
+                        mistakes = []
+                        for doc, meta in filtered_docs:
+                            if meta.get('type') == 'mistake_fix':
+                                mistakes.append(doc)
+                            else:
+                                solutions.append(doc)
+                        
+                        # Use solutions first, add at most 1 mistake pattern for context
+                        filtered = solutions[:n_results]
+                        if len(filtered) < n_results and mistakes:
+                            filtered.append(mistakes[0])
+                        
+                        if not filtered:
+                            filtered = [d for d, _ in filtered_docs[:n_results]]
+                        
+                        memories = "\n---\n".join(filtered)
+                        # Limit memory injection to prevent Context Window OOM
+                        if len(memories) > 3000:
+                            cutoff = memories.rfind('\n\n', 0, 3000)
+                            cutoff = cutoff if cutoff != -1 else 3000
+                            memories = memories[:cutoff] + "\n\n... [TRUNCATED]"
+                        return f"\n\nRelevant past experience:\n{memories}\n"
             except Exception as e:
                 print(f"ChromaDB query failed: {str(e)}. Falling back to SQLite recall.")
 
