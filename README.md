@@ -91,7 +91,7 @@ Phi-3.5-Mini   OpenCodeDS     DeepSeek R1-7B  OpenCodeDS       DeepSeek R1    Op
  Direct Ans    Actor-Critic   / VibeThinker 3B ML Regression   Deep Analysis   WebGL & JS
     │               │               │               │                │              │
     ▼               ▼               ▼               ▼                ▼              ▼
-Web Search    Execution      Verification +    Data Cleaning   OpenCodeDS     Reflexion
+Web Search    Execution      Verification +    Data Cleaning   DeepSeek R1    Reflexion
  (Simple)     Sandbox        DS-R1 Synthesis   Loop (SciPy)   Plotly Charts  Sandbox Loop
     │               │               │               │                │              │
     └───────────────┴───────────────┴───────────────┴────────────────┴──────────────┘
@@ -186,12 +186,10 @@ flowchart TD
     VIZ_LINT --> VIZ_SB
     VIZ_SB -->|Success| VIZ_PASS["Output Interactive HTML to Frontend Frame"]
 
-    %% ── 6. EXTREME WEBSEARCH PATHWAY ──
     PATH_EXTREME --> EXT_VRAM["Expand VRAM to Absolute Max Limit"]
-    EXT_VRAM --> DS_COMPARE["DeepSeek R1-7B: Deep Document Comparison & Data Structuring"]
+    EXT_VRAM --> DS_COMPARE["DeepSeek R1-7B: Deep Comparison & Data Structuring"]
     DS_COMPARE --> EXT_REPORT["Generate Comprehensive Analytical Report"]
-    EXT_REPORT --> EXT_PASS_OC["Pass structured data to OpenCodeInterpreter"]
-    EXT_PASS_OC --> EXT_PLOT["Draft Python Plotly Script: Piecharts, Barcharts, Trends"]
+    EXT_REPORT --> EXT_PLOT["DeepSeek R1-7B: Draft Plotly Script directly (No Swap)"]
     EXT_PLOT --> EXT_SB{"Execution Sandbox: Verify JSON Output"}
     EXT_SB -->|Success| EXT_PASS["Output Deep Analysis Report + Interactive Charts"]
 
@@ -217,7 +215,7 @@ flowchart TD
 2. **CODING:** OpenCodeInterpreter 6.7B acts as the generator, with an execution-driven feedback loop verifying code correctness.
 3. **REASONING:** A sandbox-verified hybrid flow. DeepSeek-R1-7B drafts the core LaTeX explanation and chain-of-thought, which is verified in the sandbox. If errors occur, it dynamically routes code/syntax corrections to VibeThinker 3B, or math/logic corrections back to DeepSeek-R1-7B, before R1 synthesizes the final response. Conceptual math/physics queries bypass the playground and route directly to DeepSeek-R1-7B.
 4. **PREDICTION:** A specialized ML pipeline that scrapes target web sources, cleans data frames, performs model fitting (Scikit-Learn/SciPy), and outputs regression/forecast statistics.
-5. **EXTREME WEBSEARCH:** Employs DeepSeek R1-7B to perform deep thematic synthesis over scraped pages, feeding key data arrays into OpenCodeInterpreter to produce Plotly visualizations.
+5. **EXTREME WEBSEARCH:** Employs DeepSeek R1-7B to perform deep thematic synthesis over scraped pages and generate Plotly visualizations directly, avoiding model-swapping overhead.
 6. **3D VISUALIZATION:** Generates interactive Three.js physics scenes or Plotly.js canvases rendered directly in the web frontend.
 
 ---
