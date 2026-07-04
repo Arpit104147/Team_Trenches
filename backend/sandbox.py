@@ -877,9 +877,7 @@ class Sandbox:
             )
 
             # Parse the JSON result from the runner
-            stdout = res.stdout.strip()
             if stdout:
-                import json
                 try:
                     result = json.loads(stdout)
 

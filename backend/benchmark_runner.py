@@ -5,6 +5,7 @@ import json
 import asyncio
 import random
 import threading
+import re
 from typing import Dict, List, Any, Optional
 
 # Add parent directory to path to enable backend imports
@@ -280,8 +281,6 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                     def clone_and_map():
                         import tempfile
                         import subprocess
-                        import sys
-                        import os
                         
                         backend_dir = os.path.dirname(os.path.abspath(__file__))
                         if backend_dir not in sys.path:
@@ -316,7 +315,6 @@ async def execute_task_on_tpu(worker_id: int, category: str, problem: Dict[str, 
                 # 4. Grade based on sandbox exit code (0 = PASS, non-zero = FAIL)
                 # `re` is used both by the code-eval branch and the answer-match
                 # branch below, so import it once at the top of the try.
-                import re
                 if "test" in problem and problem["test"] and category in ["HumanEval", "MBPP"]:
                     entry_point = problem.get("entry_point", "")
                     

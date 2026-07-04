@@ -3,6 +3,8 @@ import gc
 import re
 import json
 import time
+import shutil
+import uuid
 try:
     import psutil
 except ImportError:
@@ -146,6 +148,270 @@ class TransformerWrapper:
                     torch.xpu.empty_cache()
             except Exception:
                 pass
+# ── Comprehensive DOM/Window/THREE/Plotly Mocks for Node.js HTML verification ──
+_HTML_JS_MOCK_ENV = """
+// ── Comprehensive DOM Mock ──────────────────────────────────────
+const _mockElement = (tag) => {
+    const el = {
+        tagName: (tag || 'DIV').toUpperCase(),
+        style: new Proxy({}, { get: () => '', set: () => true }),
+        classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+        children: [],
+        childNodes: [],
+        parentNode: null,
+        textContent: '',
+        innerHTML: '',
+        innerText: '',
+        value: '',
+        checked: false,
+        offsetWidth: 1024,
+        offsetHeight: 768,
+        clientWidth: 1024,
+        clientHeight: 768,
+        scrollWidth: 1024,
+        scrollHeight: 768,
+        addEventListener: function(event, cb) {
+            if (typeof cb === 'function' && (event === 'DOMContentLoaded' || event === 'load' || event === 'change' || event === 'input')) {
+                try { cb(); } catch(e) {}
+            }
+        },
+        removeEventListener: () => {},
+        appendChild: function(c) { this.children.push(c); return c; },
+        removeChild: function(c) { return c; },
+        insertBefore: function(n) { return n; },
+        replaceChild: function(n) { return n; },
+        cloneNode: function() { return _mockElement(tag); },
+        getAttribute: () => null,
+        setAttribute: () => {},
+        removeAttribute: () => {},
+        hasAttribute: () => false,
+        querySelector: () => _mockElement(),
+        querySelectorAll: () => [],
+        getElementsByClassName: () => [],
+        getElementsByTagName: () => [],
+        getBoundingClientRect: () => ({ top: 0, left: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0 }),
+        focus: () => {},
+        blur: () => {},
+        click: () => {},
+        dispatchEvent: () => true,
+        getContext: (type) => {
+            const handler = { get: (t, p) => typeof t[p] !== 'undefined' ? t[p] : (() => ({})) };
+            return new Proxy({
+                canvas: { width: 1024, height: 768 },
+                drawingBufferWidth: 1024,
+                drawingBufferHeight: 768,
+                getExtension: () => ({}),
+                getParameter: () => 0,
+                createShader: () => ({}), compileShader: () => {}, shaderSource: () => {},
+                getShaderParameter: () => true, getShaderInfoLog: () => '',
+                createProgram: () => ({}), attachShader: () => {}, linkProgram: () => {},
+                getProgramParameter: () => true, useProgram: () => {},
+                createBuffer: () => ({}), bindBuffer: () => {}, bufferData: () => {},
+                enableVertexAttribArray: () => {}, vertexAttribPointer: () => {},
+                drawArrays: () => {}, drawElements: () => {},
+                viewport: () => {}, enable: () => {}, disable: () => {},
+                clearColor: () => {}, clear: () => {},
+                createTexture: () => ({}), bindTexture: () => {}, texImage2D: () => {},
+                texParameteri: () => {}, generateMipmap: () => {},
+                getUniformLocation: () => ({}), getAttribLocation: () => 0,
+                uniform1f: () => {}, uniform1i: () => {}, uniform2f: () => {},
+                uniform3f: () => {}, uniform4f: () => {},
+                uniformMatrix4fv: () => {},
+                // 2D Canvas
+                fillRect: () => {}, clearRect: () => {}, strokeRect: () => {},
+                fillText: () => {}, strokeText: () => {}, measureText: () => ({ width: 10 }),
+                beginPath: () => {}, closePath: () => {}, moveTo: () => {}, lineTo: () => {},
+                arc: () => {}, arcTo: () => {}, bezierCurveTo: () => {}, quadraticCurveTo: () => {},
+                fill: () => {}, stroke: () => {},
+                save: () => {}, restore: () => {}, translate: () => {}, rotate: () => {}, scale: () => {},
+                setTransform: () => {}, resetTransform: () => {},
+                createLinearGradient: () => ({ addColorStop: () => {} }),
+                createRadialGradient: () => ({ addColorStop: () => {} }),
+            }, handler);
+        }
+    };
+    return new Proxy(el, {
+        get(target, prop) {
+            if (prop in target) return target[prop];
+            if (prop === 'then' || prop === 'catch' || prop === 'on' || prop === 'off') {
+                return (cb) => {
+                    try { if (typeof cb === 'function') cb(target); } catch(e) {}
+                    return target;
+                };
+            }
+            return () => target;
+        }
+    });
+};
+
+global.document = {
+    getElementById: () => _mockElement(),
+    querySelector: () => _mockElement(),
+    querySelectorAll: () => [],
+    getElementsByClassName: () => [],
+    getElementsByTagName: () => [],
+    createElement: (tag) => _mockElement(tag),
+    createElementNS: (ns, tag) => _mockElement(tag),
+    createTextNode: () => _mockElement('text'),
+    createDocumentFragment: () => _mockElement('fragment'),
+    body: _mockElement('body'),
+    head: _mockElement('head'),
+    documentElement: _mockElement('html'),
+    addEventListener: function(event, cb) {
+        if (typeof cb === 'function' && (event === 'DOMContentLoaded' || event === 'load')) {
+            try { cb(); } catch(e) {}
+        }
+    },
+    removeEventListener: () => {},
+    readyState: 'complete',
+    cookie: '',
+};
+
+global.window = {
+    innerWidth: 1024,
+    innerHeight: 768,
+    outerWidth: 1024,
+    outerHeight: 768,
+    devicePixelRatio: 1,
+    addEventListener: function(event, cb) {
+        if (typeof cb === 'function' && (event === 'DOMContentLoaded' || event === 'load')) {
+            try { cb(); } catch(e) {}
+        }
+    },
+    removeEventListener: () => {},
+    getComputedStyle: () => new Proxy({}, { get: () => '0px' }),
+    matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+    requestAnimationFrame: (cb) => {
+        if (!global.__raf_count) global.__raf_count = 0;
+        if (global.__raf_count < 2) {
+            global.__raf_count++;
+            try { cb(global.__raf_count * 16.67); } catch(e) {}
+        }
+        return global.__raf_count;
+    },
+    cancelAnimationFrame: () => {},
+    document: global.document,
+    location: { href: '', hostname: 'localhost', protocol: 'http:' },
+    history: { pushState: () => {}, replaceState: () => {} },
+    scrollTo: () => {},
+    scroll: () => {},
+    open: () => {},
+    close: () => {},
+    alert: () => {},
+    confirm: () => true,
+    prompt: () => '',
+    performance: { now: () => 0 },
+    ResizeObserver: function() { this.observe = () => {}; this.unobserve = () => {}; this.disconnect = () => {}; },
+    MutationObserver: function() { this.observe = () => {}; this.disconnect = () => {}; },
+    IntersectionObserver: function() { this.observe = () => {}; this.unobserve = () => {}; this.disconnect = () => {}; },
+};
+
+// Promote critical browser globals to the global scope
+global.window.window = global.window;
+global.innerWidth = global.window.innerWidth;
+global.innerHeight = global.window.innerHeight;
+global.outerWidth = global.window.outerWidth;
+global.outerHeight = global.window.outerHeight;
+global.devicePixelRatio = global.window.devicePixelRatio;
+global.location = global.window.location;
+global.requestAnimationFrame = global.window.requestAnimationFrame;
+global.cancelAnimationFrame = global.window.cancelAnimationFrame;
+global.setTimeout = (cb, ms) => { try { cb(); } catch(e) {} return 1; };
+global.clearTimeout = () => {};
+global.setInterval = (cb, ms) => { return 1; };
+global.clearInterval = () => {};
+global.navigator = { userAgent: 'Mozilla/5.0', language: 'en-US', platform: 'Linux x86_64' };
+global.performance = global.window.performance;
+global.Image = function() { this.src = ''; this.onload = null; this.onerror = null; this.width = 1; this.height = 1; };
+global.fetch = () => Promise.resolve({ json: () => Promise.resolve({}), text: () => Promise.resolve('') });
+global.XMLHttpRequest = function() { this.open = () => {}; this.send = () => {}; this.setRequestHeader = () => {}; };
+global.ResizeObserver = global.window.ResizeObserver;
+global.MutationObserver = global.window.MutationObserver;
+global.IntersectionObserver = global.window.IntersectionObserver;
+global.HTMLElement = function() {};
+global.HTMLCanvasElement = function() {};
+global.WebGLRenderingContext = function() {};
+
+// ── Mock THREE.js via a Universal Proxy ─────────────────────────
+const createProxy = (name) => {
+    const mockFn = function() {};
+    mockFn.position = { x: 0, y: 0, z: 0, set: () => mockFn.position, copy: () => mockFn.position, clone: () => ({x:0,y:0,z:0,set:()=>{},copy:()=>{}}), add: () => mockFn.position, sub: () => mockFn.position, normalize: () => mockFn.position, multiplyScalar: () => mockFn.position, length: () => 0, distanceTo: () => 0 };
+    mockFn.rotation = { x: 0, y: 0, z: 0, set: () => {}, copy: () => {} };
+    mockFn.scale = { x: 1, y: 1, z: 1, set: () => mockFn.scale, copy: () => {} };
+    mockFn.up = { x: 0, y: 1, z: 0, set: () => {} };
+    mockFn.quaternion = { set: () => {}, setFromAxisAngle: () => {}, copy: () => {} };
+    mockFn.matrix = { set: () => {}, copy: () => {}, multiply: () => {} };
+    mockFn.shadowMap = { enabled: false, type: 0 };
+    mockFn.color = { set: () => mockFn.color, setHex: () => mockFn.color, setRGB: () => mockFn.color, r: 1, g: 1, b: 1, clone: () => mockFn.color };
+    mockFn.material = { color: mockFn.color, opacity: 1, transparent: false, dispose: () => {} };
+    mockFn.geometry = { dispose: () => {}, setAttribute: () => {}, setFromPoints: () => mockFn.geometry, attributes: {} };
+    mockFn.domElement = _mockElement('canvas');
+    mockFn.add = () => mockFn;
+    mockFn.remove = () => mockFn;
+    mockFn.render = () => {};
+    mockFn.setSize = () => {};
+    mockFn.setPixelRatio = () => {};
+    mockFn.setClearColor = () => {};
+    mockFn.update = () => {};
+    mockFn.lookAt = () => {};
+    mockFn.set = () => mockFn;
+    mockFn.clone = () => createProxy(name);
+    mockFn.dispose = () => {};
+    mockFn.traverse = (cb) => { try { cb(mockFn); } catch(e) {} };
+    mockFn.getPoints = () => [];
+    mockFn.setFromPoints = () => mockFn;
+    mockFn.copy = () => mockFn;
+    mockFn.applyMatrix4 = () => mockFn;
+    mockFn.normalize = () => mockFn;
+    mockFn.multiplyScalar = () => mockFn;
+    mockFn.cross = () => mockFn;
+    mockFn.dot = () => 0;
+    mockFn.length = () => 0;
+    mockFn.aspect = 1;
+
+    return new Proxy(mockFn, {
+        construct(target, args) {
+            return createProxy(name);
+        },
+        get(target, prop) {
+            if (prop === 'ArcGeometry') return undefined;
+            if (prop in target) return target[prop];
+            if (prop === 'then' || prop === 'catch' || prop === 'on' || prop === 'off') {
+                return (cb) => {
+                    try { if (typeof cb === 'function') cb(target); } catch(e) {}
+                    return new Proxy(mockFn, {});
+                };
+            }
+            return createProxy(`${name}.${String(prop)}`);
+        },
+        apply(target, thisArg, argumentsList) {
+            return createProxy(`${name}()`);
+        },
+        set(target, prop, value) {
+            target[prop] = value;
+            return true;
+        }
+    });
+};
+global.THREE = createProxy('THREE');
+global.Plotly = createProxy('Plotly');
+global.OrbitControls = global.THREE.OrbitControls;
+global.window.THREE = global.THREE;
+global.window.Plotly = global.Plotly;
+global.window.window = global.window;
+
+// Safe console mock
+global.console = {
+    log: () => {},
+    error: () => {},
+    warn: () => {},
+    info: () => {},
+    debug: () => {},
+    table: () => {},
+    time: () => {},
+    timeEnd: () => {},
+};
+"""
 
 
 class AgentOrchestrator:
@@ -171,6 +437,7 @@ class AgentOrchestrator:
         self.loaded_models = {}
         self.model_lock = threading.RLock()  # Synchronizes model loads across threads (reentrant to prevent offload deadlocks)
         self.inference_lock = threading.RLock()  # Synchronizes generation to prevent llama.cpp C++ deadlocks
+        self.tokenize_lock = threading.RLock()   # Dedicated lock for safe tokenization to avoid blocking behind full text generations
         self.model_access_order = []  # LRU tracker: oldest first
         self._in_offload_reload = False  # Recursion guard: prevents _check_memory_pressure re-entry during CPU offload
         
@@ -265,6 +532,7 @@ class AgentOrchestrator:
         return getattr(model_obj, "_n_gpu_layers", 0) != 0
 
     def _empty_gpu_caches(self):
+        gc.collect()
         if torch:
             try:
                 if torch.cuda.is_available():
@@ -276,6 +544,43 @@ class AgentOrchestrator:
                     torch.xpu.empty_cache()
             except Exception:
                 pass
+
+    def _wait_for_gpu_deallocation(self, timeout=3.0):
+        """Wait dynamically for GPU memory deallocation to settle after model eviction."""
+        if not torch:
+            return
+
+        # 1. Try to synchronize
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                torch.xpu.synchronize()
+        except Exception:
+            pass
+
+        # 2. Check if we can monitor CUDA memory
+        if torch.cuda.is_available():
+            try:
+                free_start, _ = torch.cuda.mem_get_info()
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    self._empty_gpu_caches()
+                    try:
+                        torch.cuda.synchronize()
+                    except Exception:
+                        pass
+                    free_current, _ = torch.cuda.mem_get_info()
+                    # Exit early if memory has been freed
+                    if free_current > free_start:
+                        break
+                    time.sleep(0.1)
+                return
+            except Exception:
+                pass
+
+        # Fall back to a short, fixed sleep if we cannot poll GPU memory
+        time.sleep(1.0)
 
     def update_settings(self, **kwargs):
         for k, v in kwargs.items():
@@ -557,8 +862,7 @@ class AgentOrchestrator:
                 self._close_model(model_obj, lru_key)
                 del model_obj
             gc.collect()
-            self._empty_gpu_caches()
-            time.sleep(1.0)  # FIX Bug 4: let llama.cpp async cudaFree settle
+            self._wait_for_gpu_deallocation()
 
             try:
                 self._in_offload_reload = True
@@ -575,8 +879,7 @@ class AgentOrchestrator:
                 self._close_model(model_obj, lru_key)
                 del model_obj
             gc.collect()
-            self._empty_gpu_caches()
-            time.sleep(1.0)  # FIX Bug 4
+            self._wait_for_gpu_deallocation()
             print(f"  ✅ Evicted '{lru_key}'. RAM now: {self._get_ram_free_gb():.1f} GB free")
             return True
 
@@ -701,17 +1004,7 @@ class AgentOrchestrator:
 
         # Trigger garbage collection and empty caches immediately
         gc.collect()
-        if torch:
-            try:
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except Exception:
-                pass
-            try:
-                if hasattr(torch, "xpu") and torch.xpu.is_available():
-                    torch.xpu.empty_cache()
-            except Exception:
-                pass
+        self._empty_gpu_caches()
 
     def unload_all_models(self):
         """Nuclear option: deterministically unload every cached model."""
@@ -753,9 +1046,8 @@ class AgentOrchestrator:
                             self.model_access_order.remove(model_key)
                         self._close_model(model_obj, model_key)
                         del model_obj
-                    gc.collect()
                     self._empty_gpu_caches()
-                    time.sleep(1.0)
+                    self._wait_for_gpu_deallocation(timeout=1.0)
 
             if not is_cpu:
                 required_ctx = self._get_dynamic_context_ceiling(model_key)
@@ -781,12 +1073,7 @@ class AgentOrchestrator:
                         self.model_access_order.remove(model_key)
                     del model_obj
                 gc.collect()
-                try:
-                    if torch and torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except Exception:
-                    pass
-                time.sleep(2)  # Give llama.cpp's async CUDA deallocation time to complete
+                self._wait_for_gpu_deallocation()
             else:
                 self._touch_model(model_key)
                 return model_obj
@@ -819,14 +1106,7 @@ class AgentOrchestrator:
                         self._close_model(model_obj, mk)
                         del model_obj
                 gc.collect()
-                try:
-                    if torch and torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except Exception:
-                    pass
-                # Give llama.cpp's internal cudaFree() time to fully complete
-                time.sleep(3)
-                gc.collect()
+                self._wait_for_gpu_deallocation()
                 evm_flushed = True
             else:
                 evm_flushed = True  # Only our model is loaded, all VRAM is ours
@@ -933,12 +1213,7 @@ class AgentOrchestrator:
                     except Exception as e:
                         print(f"⚠️ DMA: GPU context creation failed for '{model_key}' (n_ctx={ctx_size}): {e}")
                         gc.collect()
-                        try:
-                            if torch and torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                        except Exception:
-                            pass
-                        time.sleep(2)
+                        self._wait_for_gpu_deallocation()
                 
                 # CPU fallback if all GPU attempts failed
                 if llm is None:
@@ -1666,9 +1941,21 @@ class AgentOrchestrator:
     def safe_tokenize(self, llm, text_bytes):
         """Thread-safe wrapper for llama.cpp tokenization to prevent concurrent C-level segfaults."""
         if hasattr(llm, "tokenize"):
-            with self.inference_lock:
+            with self.tokenize_lock:
                 return llm.tokenize(text_bytes)
         return []
+
+    @staticmethod
+    def _compute_gen_tokens(min_ctx):
+        """Helper to dynamically scale gen_tokens based on safe context capacity."""
+        gen_tokens = int(min_ctx * 0.40)
+        gen_tokens = max(2048, min(8192, gen_tokens))
+        if min_ctx - gen_tokens < 1500:
+            gen_tokens = max(512, min_ctx - 1500)
+        if gen_tokens < 256:
+            gen_tokens = 256
+        return gen_tokens
+
 
     # =========================================================================
     # DRY Helper: Call any model (TransformerWrapper or GGUF)
@@ -2264,270 +2551,7 @@ class AgentOrchestrator:
 
         # Prepend mocks for DOM, Window, THREE, and Plotly to Node.js context.
         # This will bypass typical browser-only ReferenceErrors while letting actual syntax/API bugs throw errors.
-        mocks = """
-        // ── Comprehensive DOM Mock ──────────────────────────────────────
-        const _mockElement = (tag) => {
-            const el = {
-                tagName: (tag || 'DIV').toUpperCase(),
-                style: new Proxy({}, { get: () => '', set: () => true }),
-                classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
-                children: [],
-                childNodes: [],
-                parentNode: null,
-                textContent: '',
-                innerHTML: '',
-                innerText: '',
-                value: '',
-                checked: false,
-                offsetWidth: 1024,
-                offsetHeight: 768,
-                clientWidth: 1024,
-                clientHeight: 768,
-                scrollWidth: 1024,
-                scrollHeight: 768,
-                addEventListener: function(event, cb) {
-                    if (typeof cb === 'function' && (event === 'DOMContentLoaded' || event === 'load' || event === 'change' || event === 'input')) {
-                        try { cb(); } catch(e) {}
-                    }
-                },
-                removeEventListener: () => {},
-                appendChild: function(c) { this.children.push(c); return c; },
-                removeChild: function(c) { return c; },
-                insertBefore: function(n) { return n; },
-                replaceChild: function(n) { return n; },
-                cloneNode: function() { return _mockElement(tag); },
-                getAttribute: () => null,
-                setAttribute: () => {},
-                removeAttribute: () => {},
-                hasAttribute: () => false,
-                querySelector: () => _mockElement(),
-                querySelectorAll: () => [],
-                getElementsByClassName: () => [],
-                getElementsByTagName: () => [],
-                getBoundingClientRect: () => ({ top: 0, left: 0, right: 1024, bottom: 768, width: 1024, height: 768, x: 0, y: 0 }),
-                focus: () => {},
-                blur: () => {},
-                click: () => {},
-                dispatchEvent: () => true,
-                getContext: (type) => {
-                    const handler = { get: (t, p) => typeof t[p] !== 'undefined' ? t[p] : (() => ({})) };
-                    return new Proxy({
-                        canvas: { width: 1024, height: 768 },
-                        drawingBufferWidth: 1024,
-                        drawingBufferHeight: 768,
-                        getExtension: () => ({}),
-                        getParameter: () => 0,
-                        createShader: () => ({}), compileShader: () => {}, shaderSource: () => {},
-                        getShaderParameter: () => true, getShaderInfoLog: () => '',
-                        createProgram: () => ({}), attachShader: () => {}, linkProgram: () => {},
-                        getProgramParameter: () => true, useProgram: () => {},
-                        createBuffer: () => ({}), bindBuffer: () => {}, bufferData: () => {},
-                        enableVertexAttribArray: () => {}, vertexAttribPointer: () => {},
-                        drawArrays: () => {}, drawElements: () => {},
-                        viewport: () => {}, enable: () => {}, disable: () => {},
-                        clearColor: () => {}, clear: () => {},
-                        createTexture: () => ({}), bindTexture: () => {}, texImage2D: () => {},
-                        texParameteri: () => {}, generateMipmap: () => {},
-                        getUniformLocation: () => ({}), getAttribLocation: () => 0,
-                        uniform1f: () => {}, uniform1i: () => {}, uniform2f: () => {},
-                        uniform3f: () => {}, uniform4f: () => {},
-                        uniformMatrix4fv: () => {},
-                        // 2D Canvas
-                        fillRect: () => {}, clearRect: () => {}, strokeRect: () => {},
-                        fillText: () => {}, strokeText: () => {}, measureText: () => ({ width: 10 }),
-                        beginPath: () => {}, closePath: () => {}, moveTo: () => {}, lineTo: () => {},
-                        arc: () => {}, arcTo: () => {}, bezierCurveTo: () => {}, quadraticCurveTo: () => {},
-                        fill: () => {}, stroke: () => {},
-                        save: () => {}, restore: () => {}, translate: () => {}, rotate: () => {}, scale: () => {},
-                        setTransform: () => {}, resetTransform: () => {},
-                        createLinearGradient: () => ({ addColorStop: () => {} }),
-                        createRadialGradient: () => ({ addColorStop: () => {} }),
-                    }, handler);
-                }
-            };
-            return new Proxy(el, {
-                get(target, prop) {
-                    if (prop in target) return target[prop];
-                    if (prop === 'then' || prop === 'catch' || prop === 'on' || prop === 'off') {
-                        return (cb) => {
-                            try { if (typeof cb === 'function') cb(target); } catch(e) {}
-                            return target;
-                        };
-                    }
-                    return () => target;
-                }
-            });
-        };
-
-        global.document = {
-            getElementById: () => _mockElement(),
-            querySelector: () => _mockElement(),
-            querySelectorAll: () => [],
-            getElementsByClassName: () => [],
-            getElementsByTagName: () => [],
-            createElement: (tag) => _mockElement(tag),
-            createElementNS: (ns, tag) => _mockElement(tag),
-            createTextNode: () => _mockElement('text'),
-            createDocumentFragment: () => _mockElement('fragment'),
-            body: _mockElement('body'),
-            head: _mockElement('head'),
-            documentElement: _mockElement('html'),
-            addEventListener: function(event, cb) {
-                if (typeof cb === 'function' && (event === 'DOMContentLoaded' || event === 'load')) {
-                    try { cb(); } catch(e) {}
-                }
-            },
-            removeEventListener: () => {},
-            readyState: 'complete',
-            cookie: '',
-        };
-
-        global.window = {
-            innerWidth: 1024,
-            innerHeight: 768,
-            outerWidth: 1024,
-            outerHeight: 768,
-            devicePixelRatio: 1,
-            addEventListener: function(event, cb) {
-                if (typeof cb === 'function' && (event === 'DOMContentLoaded' || event === 'load')) {
-                    try { cb(); } catch(e) {}
-                }
-            },
-            removeEventListener: () => {},
-            getComputedStyle: () => new Proxy({}, { get: () => '0px' }),
-            matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-            requestAnimationFrame: (cb) => {
-                if (!global.__raf_count) global.__raf_count = 0;
-                if (global.__raf_count < 2) {
-                    global.__raf_count++;
-                    try { cb(global.__raf_count * 16.67); } catch(e) {}
-                }
-                return global.__raf_count;
-            },
-            cancelAnimationFrame: () => {},
-            document: global.document,
-            location: { href: '', hostname: 'localhost', protocol: 'http:' },
-            history: { pushState: () => {}, replaceState: () => {} },
-            scrollTo: () => {},
-            scroll: () => {},
-            open: () => {},
-            close: () => {},
-            alert: () => {},
-            confirm: () => true,
-            prompt: () => '',
-            performance: { now: () => 0 },
-            ResizeObserver: function() { this.observe = () => {}; this.unobserve = () => {}; this.disconnect = () => {}; },
-            MutationObserver: function() { this.observe = () => {}; this.disconnect = () => {}; },
-            IntersectionObserver: function() { this.observe = () => {}; this.unobserve = () => {}; this.disconnect = () => {}; },
-        };
-
-        // Promote critical browser globals to the global scope
-        global.window.window = global.window;
-        global.innerWidth = global.window.innerWidth;
-        global.innerHeight = global.window.innerHeight;
-        global.outerWidth = global.window.outerWidth;
-        global.outerHeight = global.window.outerHeight;
-        global.devicePixelRatio = global.window.devicePixelRatio;
-        global.location = global.window.location;
-        global.requestAnimationFrame = global.window.requestAnimationFrame;
-        global.cancelAnimationFrame = global.window.cancelAnimationFrame;
-        global.setTimeout = (cb, ms) => { try { cb(); } catch(e) {} return 1; };
-        global.clearTimeout = () => {};
-        global.setInterval = (cb, ms) => { return 1; };
-        global.clearInterval = () => {};
-        global.navigator = { userAgent: 'Mozilla/5.0', language: 'en-US', platform: 'Linux x86_64' };
-        global.performance = global.window.performance;
-        global.Image = function() { this.src = ''; this.onload = null; this.onerror = null; this.width = 1; this.height = 1; };
-        global.fetch = () => Promise.resolve({ json: () => Promise.resolve({}), text: () => Promise.resolve('') });
-        global.XMLHttpRequest = function() { this.open = () => {}; this.send = () => {}; this.setRequestHeader = () => {}; };
-        global.ResizeObserver = global.window.ResizeObserver;
-        global.MutationObserver = global.window.MutationObserver;
-        global.IntersectionObserver = global.window.IntersectionObserver;
-        global.HTMLElement = function() {};
-        global.HTMLCanvasElement = function() {};
-        global.WebGLRenderingContext = function() {};
-
-        // ── Mock THREE.js via a Universal Proxy ─────────────────────────
-        const createProxy = (name) => {
-            const mockFn = function() {};
-            mockFn.position = { x: 0, y: 0, z: 0, set: () => mockFn.position, copy: () => mockFn.position, clone: () => ({x:0,y:0,z:0,set:()=>{},copy:()=>{}}), add: () => mockFn.position, sub: () => mockFn.position, normalize: () => mockFn.position, multiplyScalar: () => mockFn.position, length: () => 0, distanceTo: () => 0 };
-            mockFn.rotation = { x: 0, y: 0, z: 0, set: () => {}, copy: () => {} };
-            mockFn.scale = { x: 1, y: 1, z: 1, set: () => mockFn.scale, copy: () => {} };
-            mockFn.up = { x: 0, y: 1, z: 0, set: () => {} };
-            mockFn.quaternion = { set: () => {}, setFromAxisAngle: () => {}, copy: () => {} };
-            mockFn.matrix = { set: () => {}, copy: () => {}, multiply: () => {} };
-            mockFn.shadowMap = { enabled: false, type: 0 };
-            mockFn.color = { set: () => mockFn.color, setHex: () => mockFn.color, setRGB: () => mockFn.color, r: 1, g: 1, b: 1, clone: () => mockFn.color };
-            mockFn.material = { color: mockFn.color, opacity: 1, transparent: false, dispose: () => {} };
-            mockFn.geometry = { dispose: () => {}, setAttribute: () => {}, setFromPoints: () => mockFn.geometry, attributes: {} };
-            mockFn.domElement = _mockElement('canvas');
-            mockFn.add = () => mockFn;
-            mockFn.remove = () => mockFn;
-            mockFn.render = () => {};
-            mockFn.setSize = () => {};
-            mockFn.setPixelRatio = () => {};
-            mockFn.setClearColor = () => {};
-            mockFn.update = () => {};
-            mockFn.lookAt = () => {};
-            mockFn.set = () => mockFn;
-            mockFn.clone = () => createProxy(name);
-            mockFn.dispose = () => {};
-            mockFn.traverse = (cb) => { try { cb(mockFn); } catch(e) {} };
-            mockFn.getPoints = () => [];
-            mockFn.setFromPoints = () => mockFn;
-            mockFn.copy = () => mockFn;
-            mockFn.applyMatrix4 = () => mockFn;
-            mockFn.normalize = () => mockFn;
-            mockFn.multiplyScalar = () => mockFn;
-            mockFn.cross = () => mockFn;
-            mockFn.dot = () => 0;
-            mockFn.length = () => 0;
-            mockFn.aspect = 1;
-
-            return new Proxy(mockFn, {
-                construct(target, args) {
-                    return createProxy(name);
-                },
-                get(target, prop) {
-                    if (prop === 'ArcGeometry') return undefined;
-                    if (prop in target) return target[prop];
-                    if (prop === 'then' || prop === 'catch' || prop === 'on' || prop === 'off') {
-                        return (cb) => {
-                            try { if (typeof cb === 'function') cb(target); } catch(e) {}
-                            return new Proxy(mockFn, {});
-                        };
-                    }
-                    return createProxy(`${name}.${String(prop)}`);
-                },
-                apply(target, thisArg, argumentsList) {
-                    return createProxy(`${name}()`);
-                },
-                set(target, prop, value) {
-                    target[prop] = value;
-                    return true;
-                }
-            });
-        };
-        global.THREE = createProxy('THREE');
-        global.Plotly = createProxy('Plotly');
-        global.OrbitControls = global.THREE.OrbitControls;
-        global.window.THREE = global.THREE;
-        global.window.Plotly = global.Plotly;
-        global.window.window = global.window;
-
-        // Safe console mock
-        global.console = {
-            log: () => {},
-            error: () => {},
-            warn: () => {},
-            info: () => {},
-            debug: () => {},
-            table: () => {},
-            time: () => {},
-            timeEnd: () => {},
-        };
-        """
-        full_test_code = mocks + "\n" + js_code
+        full_test_code = _HTML_JS_MOCK_ENV + "\n" + js_code
         success, output = self.sandbox.execute(full_test_code, language='javascript')
         return success, output
 
@@ -2583,7 +2607,6 @@ class AgentOrchestrator:
 
     def _execute_3d_generation(self, compiled_plan, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         """Execute the actual 3D visualization generation (HTML + Plotly fallback)."""
-        import re
         # Strip internal thinking to save massive token limits
         clean_plan = self._strip_thinking(compiled_plan)
         # Strip all markdown code blocks to prevent opencode from trying to fix/debug them
@@ -2792,7 +2815,6 @@ class AgentOrchestrator:
                 if start_idx != -1 and end_idx != -1:
                     json_candidate = cleaned[start_idx:end_idx+1]
                     try:
-                        import json
                         json.loads(json_candidate)
                         cleaned = json_candidate
                         json_extracted = True
@@ -2853,7 +2875,6 @@ class AgentOrchestrator:
             if start_idx != -1 and end_idx != -1:
                 json_candidate = cleaned_final[start_idx:end_idx+1]
                 try:
-                    import json
                     parsed_cand = json.loads(json_candidate)
                     if isinstance(parsed_cand, dict) and ("data" in parsed_cand or "layout" in parsed_cand):
                         cleaned_final = json_candidate
@@ -3018,8 +3039,6 @@ class AgentOrchestrator:
     def _extreme_websearch_pipeline(self, prompt, enriched_prompt, router_llm,
                                      router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
         """Deep document analysis using DeepSeek R1 for analysis, data extraction, AND chart generation."""
-        import re
-        import json
         import urllib.parse
 
         # ── Phase 0: Multi-Query Search Expansion ──────────────────────────
@@ -3709,14 +3728,7 @@ class AgentOrchestrator:
         # We allocate up to 40% of the active context for generation, capped between 2048 and 8192 tokens.
         # This prevents truncation on large GPUs/RAM setups while avoiding prompt starvation on low setups.
         min_ctx = min(ds_ctx, oc_ctx)
-        gen_tokens = int(min_ctx * 0.40)
-        gen_tokens = max(2048, min(8192, gen_tokens))
-        # Ensure the prompt always has at least 1500 tokens of headroom
-        if min_ctx - gen_tokens < 1500:
-            gen_tokens = max(512, min_ctx - 1500)
-        # Absolute safety floor: gen_tokens must never be zero or negative
-        if gen_tokens < 256:
-            gen_tokens = 256
+        gen_tokens = self._compute_gen_tokens(min_ctx)
             
         print(f"📐 DMA Generation Sizing: gen_tokens={gen_tokens} (active context base: {min_ctx} tokens)")
         
@@ -3756,24 +3768,14 @@ class AgentOrchestrator:
                     oc_ctx = min(8192, oc_ctx_cap)
                 # Recalculate gen_tokens with the expanded context
                 min_ctx = min(ds_ctx, oc_ctx)
-                gen_tokens = int(min_ctx * 0.40)
-                gen_tokens = max(2048, min(8192, gen_tokens))
-                if min_ctx - gen_tokens < 1500:
-                    gen_tokens = max(512, min_ctx - 1500)
-                if gen_tokens < 256:
-                    gen_tokens = 256
+                gen_tokens = self._compute_gen_tokens(min_ctx)
             elif self.search_mode == "extreme":
                 task_type = "EXTREME_WEBSEARCH"
                 # Extreme mode expands context to absolute max for deep document analysis
                 ds_ctx = ds_ctx_cap
                 oc_ctx = oc_ctx_cap
                 min_ctx = min(ds_ctx, oc_ctx)
-                gen_tokens = int(min_ctx * 0.40)
-                gen_tokens = max(2048, min(8192, gen_tokens))
-                if min_ctx - gen_tokens < 1500:
-                    gen_tokens = max(512, min_ctx - 1500)
-                if gen_tokens < 256:
-                    gen_tokens = 256
+                gen_tokens = self._compute_gen_tokens(min_ctx)
             elif task_type not in ["CODING", "REASONING"]:
                 task_type = "SIMPLE"
                 
@@ -3860,7 +3862,6 @@ class AgentOrchestrator:
             response_clean = "\n".join(lines).strip()
             
         # 2. Extract code blocks from the response
-        import re
         code_blocks = re.findall(rf'```{req_lang}[\s\S]*?```|```[\s\S]*?```', response_clean)
         
         # Check if the actual code is already present inside a code block
@@ -3988,7 +3989,6 @@ class AgentOrchestrator:
                 status_callback(f"Aesthetic Reflexion skipped: {str(e)[:80]}", "warning", "opencode", 82)
         finally:
             if polish_dir:
-                import shutil
                 shutil.rmtree(polish_dir, ignore_errors=True)
 
         return files_dict
@@ -4003,7 +4003,6 @@ class AgentOrchestrator:
         # and raw JSON leaking into the final user-facing response.
         clean_output = output
         if clean_output and len(clean_output) > 2000:
-            import re
             # Remove any large JSON blob (likely fig.to_json() output)
             json_pattern = re.compile(r'\{"data":\[.*?\}\}\}', re.DOTALL)
             stripped = json_pattern.sub('[Plotly chart JSON removed — rendered separately in UI]', clean_output)
@@ -4441,8 +4440,6 @@ class AgentOrchestrator:
                             gen_temp, status_callback
                         )
 
-                        import uuid
-                        import shutil
                         session_id = f"session_{uuid.uuid4().hex[:8]}"
                         target_workspace_dir = os.path.join("workspaces", session_id)
                         os.makedirs(target_workspace_dir, exist_ok=True)

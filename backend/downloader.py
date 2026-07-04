@@ -3,6 +3,7 @@ import sys
 import shutil
 import requests
 import time
+import re
 from huggingface_hub import hf_hub_download
 
 # Default local models directory
@@ -47,7 +48,6 @@ MODEL_DEFINITIONS = {
 def get_model_filenames(definition):
     filenames = []
     filename = definition["filename"]
-    import re
     match = re.search(r'^(.*?)(\d+)-of-(\d+)(.*?)$', filename)
     if match:
         prefix, start, total, suffix = match.groups()

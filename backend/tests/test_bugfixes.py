@@ -79,3 +79,35 @@ class TestBugFixes:
         non_html = "print('hello')"
         parsed_non_html = Sandbox.parse_multi_file_manifest(non_html)
         assert not parsed_non_html
+
+    def test_compute_gen_tokens_c3(self):
+        """Test _compute_gen_tokens helper in AgentOrchestrator."""
+        from backend.orchestrator import AgentOrchestrator
+
+        # Test with high context limit (e.g. 16384)
+        # gen_tokens = 16384 * 0.4 = 6553.6 -> 6553.
+        # Within [2048, 8192] -> 6553.
+        # Headroom: 16384 - 6553 = 9831 >= 1500.
+        assert AgentOrchestrator._compute_gen_tokens(16384) == 6553
+
+        # Test with 4096 context limit
+        # gen_tokens = 4096 * 0.4 = 1638.
+        # Max(2048, 1638) = 2048.
+        # Headroom: 4096 - 2048 = 2048 >= 1500.
+        assert AgentOrchestrator._compute_gen_tokens(4096) == 2048
+
+        # Test with 3000 context limit
+        # gen_tokens = 3000 * 0.4 = 1200.
+        # Max(2048, 1200) = 2048.
+        # Headroom: 3000 - 2048 = 952 < 1500.
+        # gen_tokens = max(512, 3000 - 1500) = 1500.
+        assert AgentOrchestrator._compute_gen_tokens(3000) == 1500
+
+        # Test with 1000 context limit
+        # gen_tokens = 1000 * 0.4 = 400.
+        # Max(2048, 400) = 2048.
+        # Headroom: 1000 - 2048 = -1048 < 1500.
+        # gen_tokens = max(512, 1000 - 1500) = 512.
+        assert AgentOrchestrator._compute_gen_tokens(1000) == 512
+
+

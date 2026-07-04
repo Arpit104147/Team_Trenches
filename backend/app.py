@@ -11,6 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import threading
 import json
 import asyncio
+import gc
+import shutil
 try:
     import psutil
 except ImportError:
@@ -235,7 +237,6 @@ def load_all_models():
     This keeps VRAM 100% empty, maximizing available space for the active model's KV cache.
     During conversation, EVM hot-swaps models from RAM → VRAM one at a time.
     """
-    import gc
     try:
         models_status = check_models_status()
         downloaded = [k for k, v in models_status.items() if v.get("downloaded")]
@@ -412,7 +413,6 @@ def get_memory_count():
 def clear_all_memory():
     """Reset vector database / SQLite store."""
     try:
-        import shutil
         db_path = orchestrator.memory.db_path
         # Remove the entire persistent DB directory (ChromaDB + SQLite)
         if os.path.exists(db_path):

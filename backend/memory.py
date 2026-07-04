@@ -5,6 +5,7 @@ import math
 import time as _time
 import numpy as np
 import uuid
+import re
 
 # ─────────────────────────────────────────────────────────────────────────
 # Retrieval-quality knobs (Phase 2.1)
@@ -346,7 +347,6 @@ class Memory:
             return set(w for w in words if w and w not in STOPWORDS)
             
         def _get_numbers(t):
-            import re
             return set(re.findall(r'-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b', t))
 
         task_words = _get_content_words(task)
