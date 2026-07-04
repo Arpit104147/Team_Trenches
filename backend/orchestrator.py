@@ -478,17 +478,19 @@ class AgentOrchestrator:
                 single_gpu_vram_gb = total_vram / (1024 ** 3)
                 self.vram_safety_gb = round(single_gpu_vram_gb * 0.40, 1)  # 40% reserve
                 
-                # ── EVM (Enterprise VRAM Multiplexing) Hot-Swap Mode ──
-                # EVM (Enterprise VRAM Multiplexing) Hot-Swap Mode is only needed on single low-VRAM GPUs (<= 16GB VRAM)
-                # where all models cannot fit in VRAM simultaneously. If we have multiple GPUs (dual-GPU) or >= 24GB VRAM (L4/L40S),
-                # we keep all models resident in VRAM to prevent C-level unload/reload segfaults and minimize hotswap latencies.
-                if single_gpu_vram_gb <= 16 and not self.dual_gpu_pipeline:
+                # Enable EVM mode if:
+                # 1. Single low-VRAM GPU (<= 16GB) to prevent OOM
+                # 2. Or, single high-VRAM GPU (>= 16GB) when system RAM is >= 32GB (A100/H100 optimization)
+                is_low_vram_single = (single_gpu_vram_gb <= 16)
+                is_high_vram_high_ram_single = (single_gpu_vram_gb >= 16 and self.total_ram_gb >= 32)
+                
+                if not self.dual_gpu_pipeline and (is_low_vram_single or is_high_vram_high_ram_single):
                     self.kaggle_hotswap_mode = True
                     # EVM guarantees proactive model flushing before every load,
                     # so we can safely use 95% of VRAM and RAM (only 5% reserve).
                     self.vram_safety_gb = round(single_gpu_vram_gb * 0.05, 1)
                     self.ram_safety_gb = round(self.total_ram_gb * 0.05, 1)
-                    print(f"⚡ EVM: Enterprise VRAM Multiplexing ACTIVE (≤16GB GPU and single GPU detected)")
+                    print(f"⚡ EVM: Enterprise VRAM Multiplexing ACTIVE (VRAM={single_gpu_vram_gb:.1f}GB, RAM={self.total_ram_gb:.1f}GB)")
                     print(f"⚡ EVM: 95% utilization enabled — VRAM reserve={self.vram_safety_gb:.1f} GB per GPU, RAM reserve={self.ram_safety_gb:.1f} GB")
                 else:
                     self.kaggle_hotswap_mode = False
