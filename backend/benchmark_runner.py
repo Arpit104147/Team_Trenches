@@ -564,6 +564,12 @@ async def run_benchmark_suite(category: str, sample_size: int, orchestrator: Any
 
     # Nuclear Option: Proactively unload all models from VRAM to make room for the benchmark!
     if orchestrator and hasattr(orchestrator, "unload_all_models"):
+        # ── SAFETY RESET: Ensure GPU mode is active before benchmark ──
+        # A prior /api/settings or /api/chat call may have changed device_mode
+        # to "cpu", which would silently make ALL benchmark loads use CPU.
+        orchestrator.device_mode = "gpu"
+        orchestrator.gpu_layers = -1
+        add_log("🔧 Reset device_mode='gpu', gpu_layers=-1 for benchmark.")
 
         try:
             add_log("🧹 Pre-benchmark memory flush: Evicting all loaded chat models from VRAM...")

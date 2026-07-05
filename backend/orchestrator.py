@@ -542,6 +542,35 @@ class AgentOrchestrator:
               f"Safety threshold = {self.ram_safety_gb:.1f} GB "
               f"(evict when free < {self.ram_safety_gb:.1f} GB)")
 
+        # ── Startup CUDA Diagnostic for llama-cpp-python ──────────────────
+        # This catches the #1 cause of "everything loads on CPU": llama-cpp-python
+        # installed without CUDA support. Print a clear warning at startup.
+        try:
+            from llama_cpp import Llama
+            # Try to detect if CUDA backend is available in llama_cpp
+            import llama_cpp as _lc
+            _has_cuda_backend = (
+                hasattr(_lc, 'LLAMA_SUPPORTS_GPU_OFFLOAD') or
+                hasattr(getattr(_lc, 'llama_cpp', None), 'ggml_backend_cuda_init') or
+                hasattr(getattr(_lc, 'llama_cpp', None), 'ggml_cuda_init')
+            )
+            if torch and torch.cuda.is_available():
+                if _has_cuda_backend:
+                    print(f"✅ llama-cpp-python: CUDA backend detected (GPU inference ready)")
+                else:
+                    print(f"")
+                    print(f"{'='*70}")
+                    print(f"⚠️  WARNING: llama-cpp-python has NO CUDA backend!")
+                    print(f"   GPU is available ({torch.cuda.get_device_name(0)})")
+                    print(f"   but llama-cpp-python was built without CUDA support.")
+                    print(f"   ALL models will fall back to CPU inference.")
+                    print(f"")
+                    print(f"   FIX: Reinstall with CUDA support:")
+                    print(f"   CMAKE_ARGS=\"-DGGML_CUDA=on\" pip install llama-cpp-python --force-reinstall --no-cache-dir")
+                    print(f"{'='*70}")
+        except ImportError:
+            print(f"⚠️ llama-cpp-python is not installed. GGUF models will not load.")
+
     def _is_gpu_resident(self, model_obj):
         """True if any layers are on GPU. n_gpu_layers: -1 = ALL layers on GPU,
         >0 = partial offload, 0 = pure CPU. NEVER compare with '> 0'."""
@@ -1265,7 +1294,31 @@ class AgentOrchestrator:
                 
                 # CPU fallback if all GPU attempts failed
                 if llm is None:
-                    print(f"⚠️ DMA: All GPU attempts failed for '{model_key}'. Falling back to CPU...")
+                    # ── LOUD DIAGNOSTIC — print exactly WHY GPU loading failed ──
+                    print(f"")
+                    print(f"{'='*70}")
+                    print(f"🚨🚨🚨 CRITICAL: ALL GPU ATTEMPTS FAILED FOR '{model_key}' 🚨🚨🚨")
+                    print(f"{'='*70}")
+                    # Check if llama-cpp-python has CUDA/ROCm support
+                    try:
+                        import llama_cpp
+                        backends = getattr(llama_cpp.llama_cpp, 'LLAMA_BACKEND_OFFLOAD', None)
+                        ggml_cuda = hasattr(llama_cpp.llama_cpp, 'ggml_cuda_init') or hasattr(llama_cpp.llama_cpp, 'ggml_backend_cuda_init')
+                        print(f"  llama_cpp version: {getattr(llama_cpp, '__version__', 'unknown')}")
+                        print(f"  CUDA/ROCm backend detected: {ggml_cuda}")
+                    except Exception:
+                        print(f"  Could not inspect llama_cpp internals")
+                    if torch and torch.cuda.is_available():
+                        print(f"  torch.cuda available: True ({torch.cuda.get_device_name(0)})")
+                        _free, _total = torch.cuda.mem_get_info(0)
+                        print(f"  VRAM: {_free/(1024**3):.1f} GB free / {_total/(1024**3):.1f} GB total")
+                    else:
+                        print(f"  torch.cuda available: False")
+                    print(f"")
+                    print(f"  LIKELY FIX: Reinstall llama-cpp-python with CUDA support:")
+                    print(f"    CMAKE_ARGS=\"-DGGML_CUDA=on\" pip install llama-cpp-python --force-reinstall --no-cache-dir")
+                    print(f"{'='*70}")
+                    print(f"⚠️ DMA: Falling back to CPU for '{model_key}'...")
                     kwargs["n_gpu_layers"] = 0
                     kwargs["n_ctx"] = required_ctx
                     kwargs["flash_attn"] = False
