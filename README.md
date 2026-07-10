@@ -1,6 +1,7 @@
 <div align="center">
   
-# 🧠 DeepThink AIOS (Artificial Intelligence Operating System)
+# 🧠 DeepThink AIOS 
+(Artificial Intelligence Operating System)
 
 ### A Fully Local Multi-Agent AIOS with Dual Sandbox Verification, Chip Design EDA Pipeline & Dynamic Hardware Scaling
 
