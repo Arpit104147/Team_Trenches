@@ -67,6 +67,13 @@ class Memory:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Phase 3: Add user_id column for multi-tenant memory isolation
+            # ALTER TABLE is idempotent — if column already exists, it will fail
+            # silently and we catch the error gracefully.
+            try:
+                cursor.execute("ALTER TABLE memories ADD COLUMN user_id TEXT DEFAULT 'default'")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             conn.commit()
 
     def count(self):

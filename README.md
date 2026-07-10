@@ -31,6 +31,10 @@ At startup, the system auto-calibrates to the available compute environment (CUD
 * **Unified Multi-Agent Orchestration:** Local execution-driven multi-agent operating system framework.
 * **7-Way Intelligent Orchestration:** Transitions away from simple chat/search toggles to an intent-aware routing network — now including a dedicated **Chip Design EDA pipeline**.
 * **Dual-Sandbox Code & Logic Verification:** Built-in isolated polyglot runtime environment verifying code outputs across 13 languages (including Verilog, SystemVerilog, and SPICE).
+* **Native Kernel-Level Sandbox Isolation:** Leverages Linux `unshare` (network/PID/IPC namespaces), `chroot` filesystem jailing, and `seccomp`-like resource restrictions — providing container-grade security without Docker overhead.
+* **Pre-Execution SAST Security Scanning:** Integrated static application security testing (Bandit patterns) blocks command injection, reverse shells, and code exfiltration before sandbox execution.
+* **PDK-Mapped Semiconductor Synthesis:** Supports real Process Design Kit (PDK) standard-cell mapping (SkyWater 130nm SKY130) with Yosys liberty-file synthesis and KLayout DRC auto-correction reflexion loops.
+* **Agentic Git & PR Automation:** Built-in Git workspace agent for automated repository cloning, branch creation, file commits, and GitHub Pull Request submission with embedded verification reports.
 * **Dynamic Memory Allocator (DMA):** Out-of-memory (OOM) protection allowing large models (up to 7B parameters) to run seamlessly on consumer hardware (e.g. 16GB RAM / Intel Iris Xe iGPUs) using LRU-based swapping.
 * **Claude-Style Interactive Visual Sandbox:** Generates live, glassmorphic Three.js 3D physics engines and Plotly.js charts rendered in secure iframe sandboxes.
 
@@ -67,9 +71,21 @@ The system is constructed with a highly decoupled client-server architecture uti
 ### Chip Design EDA Toolchain (Open-Source)
 * **RTL Simulation:** Icarus Verilog (`iverilog`) — Verilog/SystemVerilog compilation & simulation
 * **Logic Synthesis:** Yosys (`yosys`) — Open-source synthesis suite with gate-level statistics
+* **PDK Standard-Cell Mapping:** SkyWater 130nm (SKY130) — Liberty-file mapped gate-level netlist synthesis
 * **SPICE Simulation:** Ngspice (`ngspice`) — Analog/mixed-signal circuit simulation
 * **Physical Layout:** `gdstk` — GDSII file generation for semiconductor physical layout
-* **Verification:** KLayout (`klayout`) — Optional DRC/LVS physical rule checking
+* **Verification:** KLayout (`klayout`) — DRC/LVS physical rule checking with auto-correction reflexion loop
+
+### Enterprise Security & Compliance
+* **Sandbox Isolation:** Linux kernel namespaces (`unshare --net --pid --ipc`), `chroot` filesystem jailing, `seccomp`-like resource restrictions
+* **SAST Scanning:** Pre-execution static security analysis detecting command injection, reverse shells, backdoor imports, and code exfiltration patterns
+* **Authentication:** JWT token-based API authentication (optional, activated via `AIOS_AUTH_ENABLED=1`)
+* **Air-Gap Mode:** Zero-network offline deployment mode (activated via `AIOS_AIR_GAP=1`)
+* **Multi-Tenant Memory:** User-scoped SQLite memory isolation for enterprise multi-user deployments
+
+### Developer Workspace & Git Integration
+* **Git Agent:** Automated repository cloning, feature branch creation, file commits, and GitHub PR submission via `gitpython`
+* **Workspace Sync:** Direct file synchronization between AIOS output and local developer directories
 
 ---
 

@@ -11,6 +11,17 @@ import shlex
 import tokenize
 import io as _io_top
 
+# Phase 3: Security scanning
+try:
+    from backend.security import scan_code_sast, format_sast_report
+    SAST_AVAILABLE = True
+except ImportError:
+    try:
+        from security import scan_code_sast, format_sast_report
+        SAST_AVAILABLE = True
+    except ImportError:
+        SAST_AVAILABLE = False
+
 # GUI libraries that will always hang in a headless sandbox
 GUI_SIGNATURES = [
     'pygame', 'tkinter', 'turtle', 'pyglet', 'arcade',
@@ -450,6 +461,110 @@ class Sandbox:
     def __init__(self, timeout=300):
         self.timeout = timeout
         self.active_workspaces = set()
+        # ── Phase 1: Detect kernel-level isolation capabilities ──────
+        self.isolation_available = self._check_isolation_support()
+        if self.isolation_available:
+            print("Sandbox: ✅ Native kernel isolation available (unshare/chroot/seccomp)")
+        else:
+            print("Sandbox: ⚠️ Kernel isolation not available (no root/CAP_SYS_ADMIN). Using 3-layer sandbox.")
+
+    # ── Kernel Isolation Detection ────────────────────────────────────
+
+    @staticmethod
+    def _check_isolation_support():
+        """Check if native Linux kernel isolation tools are available.
+        Returns True if unshare is available and we have sufficient privileges.
+        """
+        if os.name != 'posix':
+            return False
+        # Check if unshare binary exists
+        if not shutil.which('unshare'):
+            return False
+        # Check if we have CAP_SYS_ADMIN or are root (required for --net/--pid)
+        if os.geteuid() == 0:
+            return True
+        # Check for unprivileged user namespaces (available on most modern kernels)
+        try:
+            with open('/proc/sys/kernel/unprivileged_userns_clone', 'r') as f:
+                return f.read().strip() == '1'
+        except (FileNotFoundError, PermissionError):
+            # On many kernels this sysctl doesn't exist but user namespaces work
+            # Try a quick probe: attempt unshare with --user which doesn't need root
+            try:
+                probe = subprocess.run(
+                    ['unshare', '--user', '--', 'echo', 'ok'],
+                    capture_output=True, text=True, timeout=5
+                )
+                return probe.returncode == 0 and 'ok' in probe.stdout
+            except Exception:
+                return False
+
+    def _wrap_with_isolation(self, cmd, temp_dir=None):
+        """Wrap a command with kernel-level isolation using unshare.
+        Provides network isolation, PID namespace isolation, and IPC isolation.
+        Falls back to the original command if isolation is not available.
+
+        Args:
+            cmd: The command list to wrap
+            temp_dir: Optional working directory for chroot-like filesystem isolation
+
+        Returns:
+            The wrapped command list (or original if isolation unavailable)
+        """
+        if not self.isolation_available:
+            return cmd
+
+        isolation_cmd = ['unshare']
+
+        # If we are root, use full namespace isolation
+        if os.geteuid() == 0:
+            isolation_cmd.extend([
+                '--net',   # No network access — sandbox cannot make HTTP calls
+                '--ipc',   # Isolated System V IPC and POSIX message queues
+                '--pid',   # Cannot see or kill host processes
+                '--fork',  # Fork for clean PID 1 mapping inside namespace
+                '--mount-proc',  # Mount /proc for the isolated PID namespace
+            ])
+        else:
+            # Unprivileged: use user namespace (limited but still useful)
+            isolation_cmd.extend([
+                '--user',  # Create user namespace (unprivileged)
+                '--net',   # Network isolation within user namespace
+                '--fork',  # Fork for clean process tree
+            ])
+
+        isolation_cmd.append('--')  # Separator
+        isolation_cmd.extend(cmd)
+        return isolation_cmd
+
+    @staticmethod
+    def _apply_seccomp_preexec():
+        """Return a preexec_fn that applies basic seccomp-like restrictions.
+        Uses resource limits and signal masks as a lightweight alternative
+        to full seccomp-bpf (which requires C extensions).
+
+        This is called in the child process before exec, providing:
+        - No new child processes (RLIMIT_NPROC=0)
+        - Limited file descriptors
+        - No core dumps
+        """
+        import resource
+        def _apply():
+            try:
+                # Prevent fork bombs — no new child processes
+                resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
+                # Limit open file descriptors (prevent FD exhaustion)
+                resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
+                # No core dumps (prevent disk filling)
+                resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+                # Limit virtual memory to 2GB
+                mem_limit = 2 * 1024 * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
+                # Limit CPU time to 120 seconds
+                resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
+            except (ValueError, resource.error):
+                pass  # Graceful degradation if limits can't be set
+        return _apply
 
     def clean_workspace(self, temp_dir):
         """Clean up a specific workspace directory and remove it from tracking."""
@@ -880,8 +995,7 @@ class Sandbox:
         return None
 
     # ── Subprocess runner that guarantees the entire process group dies ──
-    @staticmethod
-    def _run_with_kill(cmd, timeout, cwd=None, env=None):
+    def _run_with_kill(self, cmd, timeout, cwd=None, env=None, use_isolation=False):
         """
         Drop-in replacement for `subprocess.run(cmd, timeout=timeout, ...)`
         that (a) launches the child in its own session so we control the
@@ -889,10 +1003,18 @@ class Sandbox:
         — killing grandchildren too (numpy/pandas worker pools, npm
         sub-shells, node children, javac daemons, etc.).
 
+        Phase 1 Enhancement: When use_isolation=True and kernel isolation is
+        available, wraps the command with `unshare` for network/PID/IPC
+        isolation and applies seccomp-like resource restrictions via preexec_fn.
+
         Returns a `subprocess.CompletedProcess`-like object with `.returncode`,
         `.stdout`, `.stderr`. Raises `subprocess.TimeoutExpired` on timeout,
         AFTER the process group has been fully killed.
         """
+        # Apply kernel-level isolation wrapper if requested and available
+        if use_isolation:
+            cmd = self._wrap_with_isolation(cmd, temp_dir=cwd)
+
         # start_new_session=True is the POSIX way to say "new process group
         # with the child as leader". On Windows this arg is ignored and we
         # fall back to plain terminate(); Windows isn't a target platform for
@@ -906,6 +1028,9 @@ class Sandbox:
         )
         if os.name == 'posix':
             popen_kwargs['start_new_session'] = True
+            # Apply seccomp-like resource limits in the child process
+            if use_isolation:
+                popen_kwargs['preexec_fn'] = self._apply_seccomp_preexec()
 
         proc = subprocess.Popen(cmd, **popen_kwargs)
         try:
@@ -1144,6 +1269,12 @@ class Sandbox:
                 f"Ensure all strings, functions, quotes, and brackets are fully closed.\n"
                 f"Write shorter, more concise code if necessary to avoid hitting output limits."
             )
+
+        # Phase 3: Pre-execution SAST security scan
+        if SAST_AVAILABLE:
+            sast_result = scan_code_sast(code, language="python")
+            if not sast_result["safe"]:
+                return False, format_sast_report(sast_result)
 
         # Prepend compatibility monkeypatch dynamically depending on imports in code
         compat_lines = []

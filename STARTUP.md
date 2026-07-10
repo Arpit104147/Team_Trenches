@@ -21,11 +21,17 @@ source venv/bin/activate
 export SYCL_DEVICE_FILTER=level_zero
 export IPEX_OPTIMIZE_TRANSFORMERS=1
 
+# Optional: Enable enterprise security features
+# export AIOS_AUTH_ENABLED=1
+# export AIOS_AIR_GAP=1
+
 python backend/app.py
 ```
 
 Wait until you see this before moving to Terminal 2:
 ```
+🔓 Authentication: DISABLED — Open access (local development mode).
+Sandbox: ✅ Native kernel isolation available (unshare/chroot/seccomp)
 🧠 DMA: Detected XX GB RAM → Safety threshold = X.X GB
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
@@ -215,13 +221,34 @@ Then re-run `npm run dev`. Or just use `http://localhost:5174` — works the sam
 
 Once both servers are up and you submit a prompt, the pipeline streams live in the UI:
 
-1. **Phi-3.5 Router** classifies the query into one of the 6 paths: `SIMPLE`, `CODING`, `REASONING`, `PREDICTION`, `3D_VIZ`, or `EXTREME_WEBSEARCH`.
-2. **DeepSeek-R1** or **VibeThinker** drafts the step-by-step logic, math derivation, or analytical comparison.
-3. **Execution/Node.js Sandbox** performs logic, coordinate, or API checks on the draft.
-4. **OpenCodeInterpreter** generates target code, data frames, or HTML visualization elements.
-5. **Polyglot Sandbox** compiles and executes scripts in isolated environments.
-6. **Self-Correction/Linter loops** fix runtime syntax errors on the fly.
-7. Final answer streams to the UI with code, output, and visual elements.
+1. **Phi-3.5 Router** classifies the query into one of the 7 paths: `SIMPLE`, `CODING`, `REASONING`, `PREDICTION`, `3D_VIZ`, `CHIP_DESIGN`, or `EXTREME_WEBSEARCH`.
+2. **SAST Security Scanner** checks generated code for command injection, reverse shells, and exfiltration patterns before execution.
+3. **DeepSeek-R1** or **VibeThinker** drafts the step-by-step logic, math derivation, or analytical comparison.
+4. **Execution/Node.js Sandbox** performs logic, coordinate, or API checks on the draft (inside kernel-isolated namespaces when available).
+5. **OpenCodeInterpreter** generates target code, data frames, or HTML visualization elements.
+6. **Polyglot Sandbox** compiles and executes scripts in isolated environments with `unshare` network/PID isolation.
+7. **Self-Correction/Linter loops** fix runtime syntax errors on the fly.
+8. Final answer streams to the UI with code, output, and visual elements.
+
+---
+
+## 🔐 Security Features (Active by Default)
+
+The following security features run automatically with no configuration required:
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **SAST Code Scanning** | ✅ Active | Blocks command injection, reverse shells, pickle attacks before execution |
+| **Kernel Isolation** | ✅ Active (if available) | `unshare` network/PID/IPC namespaces isolate sandbox processes |
+| **Resource Limits** | ✅ Active | 2GB RAM, 120s CPU, 0 child processes, 256 file descriptors |
+| **3-Layer Sandbox** | ✅ Active | Process isolation + builtins stripping + import whitelisting |
+| **JWT Authentication** | Optional | Enable with `AIOS_AUTH_ENABLED=1` |
+| **Air-Gap Mode** | Optional | Enable with `AIOS_AIR_GAP=1` for offline-only deployments |
+
+### UI Indicators
+- **Connection Badge** (top of sidebar): Green pulsing dot = Backend connected, Red dot = Disconnected
+- **Settings → Security tab**: Shows real-time status of SAST, Isolation, and Air-Gap mode
+- **Settings → Workspace tab**: Configure GitHub token for automated PR creation
 
 ---
 

@@ -52,6 +52,29 @@ from backend.downloader import check_models_status, download_model, MODEL_DEFINI
 from backend.orchestrator import AgentOrchestrator
 from backend.benchmark_runner import BENCHMARK_STATE, run_benchmark_suite, STATE_LOCK
 
+# Phase 3: Security & Air-Gap
+try:
+    from backend.security import (
+        air_gap, AUTH_ENABLED, create_jwt_token,
+        verify_jwt_token, get_user_id_from_token, scan_code_sast
+    )
+except ImportError:
+    from security import (
+        air_gap, AUTH_ENABLED, create_jwt_token,
+        verify_jwt_token, get_user_id_from_token, scan_code_sast
+    )
+
+# Phase 4: Git Agent
+try:
+    from backend.git_agent import GitAgent
+    git_agent = GitAgent()
+except ImportError:
+    try:
+        from git_agent import GitAgent
+        git_agent = GitAgent()
+    except ImportError:
+        git_agent = None
+
 app = FastAPI(title="Local Multi-Agent XPU System API")
 
 # Allow CORS for React frontend (development and production)
@@ -161,6 +184,12 @@ def get_system_status():
             "device_mode": orchestrator.device_mode,
             "gpu_layers": orchestrator.gpu_layers,
             "search_mode": getattr(orchestrator, "search_mode", "off")
+        },
+        "security": {
+            "auth_enabled": AUTH_ENABLED,
+            "air_gap": air_gap.to_dict(),
+            "sast_enabled": True,
+            "isolation_available": getattr(orchestrator, '_sandbox_isolation', False),
         }
     }
 
@@ -481,6 +510,58 @@ def stop_benchmark_suite():
     with STATE_LOCK:
         BENCHMARK_STATE["active"] = False
     return {"status": "stopped"}
+
+# ── Phase 3: Authentication endpoint ─────────────────────────────────────
+
+@app.post("/api/auth/login")
+def auth_login(username: str = Body(...), password: str = Body(...)):
+    """Generate a JWT token for API access (when auth is enabled)."""
+    if not AUTH_ENABLED:
+        return {"token": "auth_disabled", "message": "Authentication not enabled"}
+    # Simple credential check — in production, use a proper user database
+    # For now, accept any username with password matching AIOS_ADMIN_PASSWORD env var
+    admin_password = os.environ.get("AIOS_ADMIN_PASSWORD", "admin")
+    if password == admin_password:
+        token = create_jwt_token(user_id=username)
+        return {"token": token, "user_id": username, "expires_in": "24h"}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.get("/api/security/status")
+def security_status():
+    """Get the current security configuration status."""
+    return {
+        "auth_enabled": AUTH_ENABLED,
+        "air_gap": air_gap.to_dict(),
+        "sast_enabled": True,
+        "git_agent_available": git_agent is not None and git_agent.available,
+    }
+
+# ── Phase 4: Git Workspace endpoints ─────────────────────────────────────
+
+@app.get("/api/workspace/status")
+def workspace_status():
+    """Get git workspace status."""
+    if git_agent is None or not git_agent.available:
+        return {"available": False, "message": "Git agent not available"}
+    return {"available": True, "workspace_base": git_agent.workspace_base}
+
+@app.post("/api/workspace/clone")
+def workspace_clone(repo_url: str = Body(...), workspace_name: str = Body(None)):
+    """Clone or pull a git repository into the workspace."""
+    if git_agent is None or not git_agent.available:
+        raise HTTPException(status_code=503, detail="Git agent not available")
+    return git_agent.clone_or_pull(repo_url, workspace_name)
+
+@app.post("/api/workspace/commit")
+def workspace_commit(
+    workspace_path: str = Body(...),
+    files: dict = Body(...),
+    message: str = Body(...)
+):
+    """Commit files to a git workspace."""
+    if git_agent is None or not git_agent.available:
+        raise HTTPException(status_code=503, detail="Git agent not available")
+    return git_agent.commit_files(workspace_path, files, message)
 
 if __name__ == "__main__":
     import uvicorn

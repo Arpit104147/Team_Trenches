@@ -17,6 +17,25 @@ DeepThink AIOS can execute code in multiple languages. For this to work, ensure 
 
 *(Note: If a compiler is missing, the AI engine will not crash; it will gracefully fall back to Python execution).*
 
+### 🔧 EDA Toolchain (Optional — For Chip Design Pipeline)
+If you plan to use the Chip Design EDA Sandbox for Verilog/SPICE simulation:
+
+```bash
+# Linux (Debian/Ubuntu)
+sudo apt install iverilog yosys ngspice klayout
+
+# Mac (Homebrew)
+brew install icarus-verilog yosys ngspice
+```
+
+*(These tools are optional. If missing, the AIOS will skip hardware simulation steps and still function for all other pipelines.)*
+
+### 🔒 Kernel Isolation Prerequisites (Optional — Enhanced Security)
+The sandbox automatically uses Linux kernel namespaces (`unshare`) for network/process isolation when available. No extra setup is needed on most modern Linux systems.
+
+*   **Root users:** Full namespace isolation (`--net --pid --ipc`) is automatically enabled.
+*   **Non-root users:** User namespaces are probed automatically. If not available, the existing 3-layer sandbox (process isolation + builtins stripping + resource limits) remains fully active.
+
 ---
 
 ## Step 2: Install Base Python Dependencies
@@ -102,4 +121,28 @@ pip install llama-cpp-python
 Once all dependencies are installed, head to **[STARTUP.md](./STARTUP.md)** for:
 - How to download the AI model weights (~18 GB)
 - How to start the backend and frontend on Ubuntu, Mac, and Windows
+- How to configure enterprise security features (JWT auth, air-gap mode)
 - Troubleshooting common errors
+
+---
+
+## 🔐 Enterprise Configuration (Optional)
+
+These environment variables enable enterprise-grade features. They are **entirely optional** for local development:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AIOS_AUTH_ENABLED` | `0` | Set to `1` to require JWT tokens on all API endpoints |
+| `AIOS_JWT_SECRET` | auto-generated | Custom secret key for JWT token signing |
+| `AIOS_ADMIN_PASSWORD` | `admin` | Password for the `/api/auth/login` endpoint |
+| `AIOS_AIR_GAP` | `0` | Set to `1` to disable all outbound network features |
+| `GITHUB_TOKEN` | empty | GitHub Personal Access Token for automated PR creation |
+
+Example (air-gapped deployment with auth):
+```bash
+export AIOS_AUTH_ENABLED=1
+export AIOS_JWT_SECRET="your-secret-key-here"
+export AIOS_ADMIN_PASSWORD="strong-password"
+export AIOS_AIR_GAP=1
+python backend/app.py
+```

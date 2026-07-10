@@ -3,7 +3,7 @@ import React from "react";
 /**
  * @component Sidebar
  * Session management sidebar with chat history, memory controls,
- * and user profile footer.
+ * connection status indicator, and user profile footer.
  */
 const Sidebar = ({
   sidebarOpen,
@@ -24,6 +24,11 @@ const Sidebar = ({
     <div className={`sidebar ${!sidebarOpen ? "closed" : ""}`}>
       <div className="sidebar-top">
         <button className="sidebar-toggle" onClick={() => setSidebarOpen(false)}>☰</button>
+        {/* Connection Status Badge */}
+        <div className={`connection-badge ${isConnected ? "connected" : "disconnected"}`}>
+          <span className="connection-dot"></span>
+          <span className="connection-text">{isConnected ? "Online" : "Offline"}</span>
+        </div>
       </div>
 
       <button className="new-chat-btn" onClick={createNewChat}>
