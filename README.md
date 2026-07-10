@@ -22,13 +22,13 @@ At startup, the system auto-calibrates to the available compute environment (CUD
 
 > [!CAUTION]
 > ### ⚠️ Experimental Status
-> This project was developed as a submission for the **India Agentic AI Open Hackathon 2026**. The dual-sandbox architecture, Reflexion loops, and Dynamic Memory Allocator (DMA) push consumer hardware to its absolute limits.
+> This project is currently in active development and under experimental status. The dual-sandbox architecture, Reflexion loops, and Dynamic Memory Allocator (DMA) push consumer hardware to its absolute limits.
 
 ---
 
 ## 🚀 Key Highlights & Achievements
 
-* **India Agentic AI Open Hackathon 2026 Submission** (Shortlisting Round: July 9, 2026)
+* **Unified Multi-Agent Orchestration:** Local execution-driven multi-agent operating system framework.
 * **7-Way Intelligent Orchestration:** Transitions away from simple chat/search toggles to an intent-aware routing network — now including a dedicated **Chip Design EDA pipeline**.
 * **Dual-Sandbox Code & Logic Verification:** Built-in isolated polyglot runtime environment verifying code outputs across 13 languages (including Verilog, SystemVerilog, and SPICE).
 * **Dynamic Memory Allocator (DMA):** Out-of-memory (OOM) protection allowing large models (up to 7B parameters) to run seamlessly on consumer hardware (e.g. 16GB RAM / Intel Iris Xe iGPUs) using LRU-based swapping.
@@ -497,4 +497,4 @@ DeepThink AIOS has undergone a comprehensive system audit to verify code quality
 ---
 
 ## 👥 Team
-**Team Trenches** — Submission for the India Agentic AI Open Hackathon 2026.
+**Team Trenches** — Local Multi-Agent AIOS Development Team.
