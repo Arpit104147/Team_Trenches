@@ -33,3 +33,5 @@ pycryptodome>=3.20.0
 python-jose>=3.3.0
 pyopenssl>=24.0.0
 datasets>=2.14.0
+# EDA / Chip Design Layout (GDSII generation)
+gdstk>=0.9.0

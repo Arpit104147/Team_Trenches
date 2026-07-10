@@ -76,6 +76,7 @@ const SettingsModal = ({
             <option value="reasoning">Reasoning (DeepSeek Math/Theory)</option>
             <option value="coding">Coding (Actor-Critic Sandbox)</option>
             <option value="simple">Simple (Direct Response)</option>
+            <option value="chip_design">Chip Design (EDA Sandbox)</option>
           </select>
         </div>
 

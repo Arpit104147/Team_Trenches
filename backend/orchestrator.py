@@ -2228,6 +2228,29 @@ class AgentOrchestrator:
         if any(re.match(pat, prompt_normalized) for pat in conversational_patterns):
             return "SIMPLE"
 
+        # ── 0d-chip. Fast-track Chip Design / EDA → CHIP_DESIGN ────────
+        chip_design_triggers = [
+            "verilog", "vhdl", "systemverilog", "rtl design", "rtl code",
+            "netlist", "fpga", "asic", "chip design", "gate level",
+            "transistor layout", "drc", "lvs", "place and route",
+            "timing analysis", "sta ", "spice simulation", "spice netlist",
+            "cmos inverter", "cmos design", "nmos", "pmos", "flip flop",
+            "register file", "alu design", "risc-v", "riscv",
+            "processor design", "microarchitecture", "synthesis",
+            "testbench", "half adder", "full adder", "ripple carry",
+            "carry lookahead", "multiplexer design", "demultiplexer",
+            "decoder design", "encoder design", "shift register",
+            "counter design", "fsm design", "state machine design",
+            "logic gate", "boolean algebra", "karnaugh map",
+            "gdsii", "gdstk", "physical layout", "metal layer",
+            "iverilog", "yosys", "ngspice", "semiconductor",
+            "design a chip", "design a processor", "design a cpu",
+            "design an alu", "design a multiplexer", "design a mux",
+            "digital circuit", "analog circuit", "circuit design",
+        ]
+        if any(trigger in prompt_lower for trigger in chip_design_triggers):
+            return "CHIP_DESIGN"
+
         # ── 0d. Fast-track Scientific Derivation/Proof → REASONING ─────
         reasoning_triggers = [
             "derive", "prove that", "proof of", "equations of motion",
@@ -2299,7 +2322,7 @@ class AgentOrchestrator:
         # LAYER 1: LLM Few-Shot Classifier (handles ambiguous queries)
         # ══════════════════════════════════════════════════════════════════
         few_shot_prompt = (
-            "You are a query classifier. Read the query and output EXACTLY ONE word: SIMPLE, CODING, or REASONING.\n"
+            "You are a query classifier. Read the query and output EXACTLY ONE word: SIMPLE, CODING, REASONING, or CHIP_DESIGN.\n"
             "Do NOT explain. Do NOT add punctuation. Output ONLY the category label.\n\n"
             "## Definitions\n"
             "SIMPLE = Greetings, chitchat, factual lookups, definitions, translations, opinions, yes/no questions, "
@@ -2307,7 +2330,10 @@ class AgentOrchestrator:
             "CODING = The user wants code written, debugged, fixed, reviewed, or explained with code output. "
             "Includes requests for scripts, functions, programs, web pages, APIs, SQL, regex patterns, or any software artifact.\n"
             "REASONING = Multi-step mathematical derivations, physics proofs, logic puzzles, probability calculations, "
-            "chemical equation balancing, or deep analytical explanations — where NO code output is requested.\n\n"
+            "chemical equation balancing, or deep analytical explanations — where NO code output is requested.\n"
+            "CHIP_DESIGN = Hardware description, semiconductor design, Verilog/VHDL/SystemVerilog code, "
+            "FPGA/ASIC synthesis, transistor layout, SPICE simulation, timing analysis, digital/analog circuit design, "
+            "processor/CPU/ALU architecture, or any chip/hardware design task.\n\n"
             "## Examples\n"
             "Query: What is the capital of France?\nSIMPLE\n\n"
             "Query: Tell me a joke\nSIMPLE\n\n"
@@ -2327,7 +2353,12 @@ class AgentOrchestrator:
             "Query: Explain entropy in thermodynamics with mathematical formulation\nREASONING\n\n"
             "Query: If 3 cards are drawn without replacement from a deck, what is P(all hearts)?\nREASONING\n\n"
             "Query: Balance the equation: Fe + O2 → Fe2O3\nREASONING\n\n"
+            "Query: Design a 4-bit ALU in Verilog\nCHIP_DESIGN\n\n"
+            "Query: Write a CMOS inverter SPICE netlist\nCHIP_DESIGN\n\n"
+            "Query: Design a RISC-V processor with testbench\nCHIP_DESIGN\n\n"
+            "Query: Create a 2-to-1 multiplexer and synthesize it\nCHIP_DESIGN\n\n"
             "## Key Rules\n"
+            "- If the query mentions Verilog, VHDL, RTL, FPGA, ASIC, synthesis, SPICE, chip, processor design → always CHIP_DESIGN\n"
             "- If the query mentions writing/fixing/debugging code, scripts, programs → always CODING\n"
             "- If the query is a simple factual question, greeting, or opinion → always SIMPLE\n"
             "- If the query needs multi-step math/science reasoning but NOT code → REASONING\n"
@@ -2343,11 +2374,11 @@ class AgentOrchestrator:
 
             # Parse strategy: check the FIRST token (Phi-3.5 usually outputs the label first)
             first_token = re.split(r'[\s.,;:!?\n]+', upper)[0] if upper else ""
-            if first_token in ("SIMPLE", "CODING", "REASONING"):
+            if first_token in ("SIMPLE", "CODING", "REASONING", "CHIP_DESIGN"):
                 return first_token
 
             # Fallback: word boundary search across entire output
-            words = re.findall(r'\b(SIMPLE|CODING|REASONING)\b', upper)
+            words = re.findall(r'\b(SIMPLE|CODING|REASONING|CHIP_DESIGN)\b', upper)
             if words:
                 return words[0]
         except Exception as e:
@@ -3848,7 +3879,7 @@ class AgentOrchestrator:
             "train test split", "mean squared error", "r-squared", "r2 score"
         ])
         
-        if isinstance(mode, str) and mode.upper() in ["SIMPLE", "CODING", "REASONING", "PREDICTION", "EXTREME_WEBSEARCH"]:
+        if isinstance(mode, str) and mode.upper() in ["SIMPLE", "CODING", "REASONING", "PREDICTION", "EXTREME_WEBSEARCH", "CHIP_DESIGN"]:
             task_type = mode.upper()
         else:
             if is_predictive:
@@ -3940,6 +3971,16 @@ class AgentOrchestrator:
                 status_callback("🔬 Extreme WebSearch & Deep Analysis activated...", "info", "system", 15)
             res = self._extreme_websearch_pipeline(prompt, enriched_prompt, router_llm,
                                                     router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
+            return self._clean_cutoff_notes(res)
+
+        # ══════════════════════════════════════════════════════════════════
+        # PATH F: CHIP_DESIGN — Semiconductor EDA Pipeline
+        # ══════════════════════════════════════════════════════════════════
+        if task_type == "CHIP_DESIGN":
+            if status_callback:
+                status_callback("🔬 Chip Design Pipeline activated...", "info", "system", 15)
+            res = self._chip_design_pipeline(prompt, enriched_prompt, router_llm,
+                                              router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
             return self._clean_cutoff_notes(res)
 
         # Fallback — shouldn't reach here, but treat as SIMPLE
@@ -4149,6 +4190,325 @@ class AgentOrchestrator:
             status_callback("Done!", "success", "router", 100)
             
         return f"{final_response}{viz}"
+
+    # =====================================================================
+    # CHIP DESIGN PIPELINE — Architecture → HDL + EDA Verify → 3D Layout
+    # =====================================================================
+    def _chip_design_pipeline(self, prompt, enriched_prompt, router_llm,
+                              router_ctx, ds_ctx, oc_ctx, gen_tokens, gen_temp, status_callback=None):
+        """Three-stage chip design pipeline:
+        Stage 1: Architecture Decomposition (DeepSeek-R1)
+        Stage 2: HDL Generation + EDA Verification (reflexion loop)
+        Stage 3: Physical Layout + 3D Visualization (OpenCodeInterpreter)
+        """
+        prompt_lower = prompt.lower()
+        output_parts = []
+
+        # Determine analog (SPICE) vs digital (Verilog)
+        is_spice = any(kw in prompt_lower for kw in [
+            'spice', 'ngspice', 'cmos inverter', 'analog circuit',
+            'transistor level', 'mosfet', 'voltage divider',
+            'amplifier circuit', 'op amp', 'nmos transistor', 'pmos transistor'
+        ])
+
+        # Check EDA tools
+        eda_tools = self.sandbox.check_eda_tools()
+        tool_parts = []
+        for t in ['iverilog', 'yosys', 'ngspice', 'gdstk']:
+            tool_parts.append(f"{t} {'✅' if eda_tools.get(t) else '❌'}")
+        if status_callback:
+            status_callback(f"EDA Tools: {' | '.join(tool_parts)}", "info", "system", 18)
+
+        # ══════════════════════════════════════════════════════════════
+        # STAGE 1: Architecture Decomposition
+        # ══════════════════════════════════════════════════════════════
+        if status_callback:
+            status_callback("Stage 1: Architecture Decomposition...", "info", "deepseek", 20)
+
+        arch_sys = (
+            "You are an expert semiconductor architect and digital/analog design engineer.\n"
+            "Decompose the user's chip design request into a clear architecture plan.\n\n"
+            "OUTPUT FORMAT:\n"
+            "1. **Design Overview**: High-level description\n"
+            "2. **Sub-Module Breakdown**: Each sub-module with:\n"
+            "   - Module name\n"
+            "   - Input/Output port definitions (name, width, direction)\n"
+            "   - Brief functional description\n"
+            "3. **Interconnection**: How sub-modules connect\n"
+            "4. **Design Decisions**: Key choices made\n\n"
+            "Be precise with port widths (e.g., `input [3:0] a`).\n"
+        )
+
+        crunch_budget = max(1024, ds_ctx - gen_tokens - 800)
+        ds_safe = self._crunch_prompt(enriched_prompt, "deepseek_r1", crunch_budget, status_callback, router_llm=router_llm)
+
+        ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
+        arch_plan = self._call_model(
+            ds_llm, ds_safe,
+            max_tokens=min(gen_tokens, 2048),
+            temperature=0.4,
+            system_prompt=arch_sys
+        )
+        arch_plan_clean = self._strip_thinking(arch_plan)
+        output_parts.append("## 🏗️ Stage 1: Architecture Decomposition\n\n" + arch_plan_clean)
+
+        # Store in memory for follow-ups
+        try:
+            self.memory.store(
+                f"Chip Design Architecture: {prompt[:100]}",
+                arch_plan_clean[:3000],
+                metadata={"type": "chip_design", "stage": "architecture"}
+            )
+        except Exception:
+            pass
+
+        # ══════════════════════════════════════════════════════════════
+        # STAGE 2: HDL Generation + EDA Verification
+        # ══════════════════════════════════════════════════════════════
+        if status_callback:
+            status_callback("Stage 2: Generating HDL Code...", "info", "deepseek", 40)
+
+        design_code = ""
+        tb_code = ""
+
+        if is_spice:
+            hdl_sys = (
+                "You are an expert analog circuit designer.\n"
+                "Generate a complete SPICE netlist (.cir) for the requested circuit.\n\n"
+                "RULES:\n"
+                "1. Standard SPICE syntax for Ngspice\n"
+                "2. Include .model definitions for MOSFETs with realistic parameters\n"
+                "3. Include voltage sources, ground (node 0), all elements\n"
+                "4. Add .tran/.dc/.ac analysis commands\n"
+                "5. Add .control/.endc block with run and plot\n"
+                "6. Add .end at the end\n"
+                "7. Output inside ```spice``` code block\n\n"
+                f"Architecture:\n{arch_plan_clean[:2000]}\n\nUser Request: {prompt}"
+            )
+        else:
+            hdl_sys = (
+                "You are an expert digital design engineer writing synthesizable Verilog RTL.\n"
+                "Generate a complete Verilog design AND testbench.\n\n"
+                "STRICT RULES:\n"
+                "1. Design MUST be synthesizable (no delays in logic, no initial blocks in design)\n"
+                "2. Use reg for sequential, wire for combinational\n"
+                "3. always @(posedge clk) for sequential, always @(*) for combinational\n"
+                "4. Testbench MUST: instantiate DUT, generate clock, apply test vectors,\n"
+                "   use $display for results, $finish to end, print PASS/FAIL\n"
+                "5. Output design in ```verilog``` block labeled '// Design Module'\n"
+                "6. Output testbench in separate ```verilog``` block labeled '// Testbench'\n\n"
+                f"Architecture:\n{arch_plan_clean[:2000]}\n\nUser Request: {prompt}"
+            )
+
+        hdl_prompt_est = len(hdl_sys) // 3
+        hdl_max_tokens = max(1024, min(gen_tokens, ds_ctx - hdl_prompt_est - 200))
+
+        hdl_response = self._call_model(ds_llm, hdl_sys, max_tokens=hdl_max_tokens, temperature=0.3)
+        hdl_clean = self._strip_thinking(hdl_response)
+
+        if is_spice:
+            spice_match = re.search(r'```(?:spice|cir|ngspice)\s*(.*?)```', hdl_clean, re.DOTALL | re.IGNORECASE)
+            if not spice_match:
+                spice_match = re.search(r'```\s*(\.title.*?\.end)\s*```', hdl_clean, re.DOTALL | re.IGNORECASE)
+            spice_code = spice_match.group(1).strip() if spice_match else ""
+
+            output_parts.append("\n\n---\n## ⚡ Stage 2: SPICE Simulation\n\n")
+            output_parts.append(f"```spice\n{spice_code or hdl_clean}\n```\n\n")
+
+            if spice_code and eda_tools.get('ngspice'):
+                if status_callback:
+                    status_callback("Running Ngspice simulation...", "info", "system", 55)
+                success, sim_output = self.sandbox.execute(spice_code, language='spice')
+                status_icon = "✅" if success else "❌"
+                output_parts.append(f"### Simulation Result: {status_icon}\n```\n{str(sim_output)[:3000]}\n```")
+            elif not eda_tools.get('ngspice'):
+                output_parts.append("> ⚠️ Ngspice not installed. Install with: `apt-get install ngspice`\n")
+        else:
+            verilog_blocks = re.findall(r'```(?:verilog|v|sv|systemverilog)\s*(.*?)```', hdl_clean, re.DOTALL | re.IGNORECASE)
+
+            if len(verilog_blocks) >= 2:
+                design_code = verilog_blocks[0].strip()
+                tb_code = verilog_blocks[1].strip()
+            elif len(verilog_blocks) == 1:
+                full_code = verilog_blocks[0].strip()
+                tb_pat = re.search(r'(module\s+\w*(?:tb|test|bench)\w*[\s\S]*)', full_code, re.IGNORECASE)
+                if tb_pat:
+                    design_code = full_code[:tb_pat.start()].strip()
+                    tb_code = tb_pat.group(1).strip()
+                else:
+                    design_code = full_code
+
+            if design_code:
+                output_parts.append("\n\n---\n## ⚡ Stage 2: HDL Generation & Verification\n\n")
+                output_parts.append(f"### Design Module\n```verilog\n{design_code}\n```\n\n")
+                if tb_code:
+                    output_parts.append(f"### Testbench\n```verilog\n{tb_code}\n```\n\n")
+
+                # EDA verification
+                if eda_tools.get('iverilog') or eda_tools.get('yosys'):
+                    if status_callback:
+                        status_callback("Running EDA verification...", "info", "system", 55)
+
+                    eda_result = self.sandbox.execute_eda_flow(
+                        rtl_code=design_code,
+                        testbench_code=tb_code if tb_code else None,
+                        run_simulation=eda_tools.get('iverilog', False),
+                        run_synthesis=eda_tools.get('yosys', False),
+                    )
+
+                    # Reflexion loop (max 2 attempts)
+                    for attempt in range(2):
+                        if eda_result['success'] or not eda_result['errors']:
+                            break
+                        if status_callback:
+                            status_callback(f"Fixing EDA errors ({attempt+1}/2)...", "warning", "deepseek", 60 + attempt * 5)
+
+                        error_text = "\n".join(eda_result['errors'])
+                        fix_prompt = (
+                            f"Your Verilog failed EDA verification.\n\n"
+                            f"Design:\n```verilog\n{design_code}\n```\n\n"
+                        )
+                        if tb_code:
+                            fix_prompt += f"Testbench:\n```verilog\n{tb_code}\n```\n\n"
+                        fix_prompt += (
+                            f"Errors:\n```\n{error_text[:2000]}\n```\n\n"
+                            "Fix the errors. Output CORRECTED design and testbench in separate ```verilog``` blocks."
+                        )
+
+                        fix_resp = self._call_model(ds_llm, fix_prompt, max_tokens=hdl_max_tokens, temperature=0.2)
+                        fix_clean = self._strip_thinking(fix_resp)
+                        fix_blocks = re.findall(r'```(?:verilog|v|sv)\s*(.*?)```', fix_clean, re.DOTALL | re.IGNORECASE)
+
+                        if fix_blocks:
+                            design_code = fix_blocks[0].strip()
+                            if len(fix_blocks) >= 2:
+                                tb_code = fix_blocks[1].strip()
+                            eda_result = self.sandbox.execute_eda_flow(
+                                rtl_code=design_code,
+                                testbench_code=tb_code if tb_code else None,
+                                run_simulation=eda_tools.get('iverilog', False),
+                                run_synthesis=eda_tools.get('yosys', False),
+                            )
+
+                    # Report results
+                    output_parts.append("### 🔬 EDA Verification Results\n\n")
+                    if eda_result.get('sim_output'):
+                        sim_icon = "✅ PASS" if eda_result['sim_passed'] else "❌ FAIL"
+                        output_parts.append(f"**Simulation:** {sim_icon}\n")
+                        output_parts.append(f"```\n{eda_result['sim_output'][:2000]}\n```\n\n")
+                    if eda_result.get('gate_count'):
+                        output_parts.append(f"**Synthesis Gate Count:** {eda_result['gate_count']} cells\n\n")
+                    if eda_result.get('synth_output') and 'Synthesis Statistics' in eda_result['synth_output']:
+                        stats_start = eda_result['synth_output'].find('--- Synthesis Statistics ---')
+                        if stats_start != -1:
+                            output_parts.append(f"```\n{eda_result['synth_output'][stats_start:][:1500]}\n```\n\n")
+                    if eda_result.get('errors'):
+                        output_parts.append("**Remaining Issues:**\n")
+                        for err in eda_result['errors']:
+                            output_parts.append(f"- {err[:200]}\n")
+
+                    if eda_result.get('sim_passed'):
+                        output_parts.append("\n### ✅ Final Verified Design\n")
+                        output_parts.append(f"```verilog\n{design_code}\n```\n\n")
+                        if tb_code:
+                            output_parts.append("### ✅ Final Verified Testbench\n")
+                            output_parts.append(f"```verilog\n{tb_code}\n```\n\n")
+                else:
+                    output_parts.append("> ⚠️ EDA tools not installed. Run: `apt-get install iverilog yosys`\n\n")
+            else:
+                output_parts.append("\n\n---\n## ⚡ Stage 2: HDL Design\n\n" + hdl_clean)
+
+        # ══════════════════════════════════════════════════════════════
+        # STAGE 3: Physical Layout + 3D Visualization
+        # ══════════════════════════════════════════════════════════════
+        if status_callback:
+            status_callback("Stage 3: 3D Chip Visualization...", "info", "opencode", 80)
+
+        coder_llm = self._get_model("opencode", required_ctx=oc_ctx)
+        viz_ctx = arch_plan_clean[:1500]
+        if not is_spice and design_code:
+            viz_ctx += f"\n\nVerilog modules:\n{design_code[:800]}"
+
+        viz_prompt = (
+            "Write a COMPLETE HTML page rendering an interactive 3D semiconductor chip layout.\n\n"
+            "RULES:\n"
+            "1. Three.js r128 CDN: https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js\n"
+            "2. OrbitControls CDN: https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js\n"
+            "3. Dark background #0d0d0d. MeshPhongMaterial with distinct colors per layer.\n"
+            "4. Show stacked semiconductor layers with gaps:\n"
+            "   - Silicon Substrate (gray, y=0)\n"
+            "   - N-Well/P-Well (blue/red, y=0.5)\n"
+            "   - Polysilicon gates (green, y=1.0)\n"
+            "   - Metal 1 (cyan, y=1.5)\n"
+            "   - Via (yellow spheres, y=2.0)\n"
+            "   - Metal 2 (orange, y=2.5)\n"
+            "5. Glassmorphic info panel (top-right) with design name and layer legend\n"
+            "6. Auto-rotation with OrbitControls\n"
+            "7. Ambient + directional lighting\n"
+            "8. No ES6 imports. Use global THREE and THREE.OrbitControls.\n\n"
+            f"Design Context:\n{viz_ctx}\n\n"
+            "Output ONLY complete HTML in ```html``` blocks."
+        )
+
+        viz_est = len(viz_prompt) // 3
+        viz_max = max(512, min(gen_tokens, oc_ctx - viz_est - 200))
+
+        viz_resp = self._call_model(
+            coder_llm, viz_prompt, max_tokens=viz_max, temperature=0.2,
+            system_prompt="You are an expert Three.js developer. Create interactive 3D chip visualizations. Output ONLY HTML."
+        )
+
+        html_extract = Sandbox.extract_code(viz_resp)
+        html_ok = html_extract and html_extract.strip() and (
+            "<html" in html_extract.lower() or "<script" in html_extract.lower()
+        )
+
+        if html_ok:
+            html_valid, html_error = self._verify_html_javascript(html_extract)
+            bypass = False
+            if html_error:
+                browser_kws = ["canvas", "webgl", "document is not defined", "window is not defined", "node"]
+                bypass = any(kw in html_error.lower() for kw in browser_kws)
+
+            if not html_valid and not bypass and html_error:
+                if status_callback:
+                    status_callback("Fixing 3D visualization...", "warning", "opencode", 88)
+                fix_p = (
+                    f"Your HTML has errors:\nError: {html_error[:500]}\n\n"
+                    f"Code:\n{html_extract[:3000]}\n\n"
+                    "Fix it. Output corrected HTML in ```html``` blocks."
+                )
+                fix_viz = self._call_model(coder_llm, fix_p, max_tokens=viz_max, temperature=0.2)
+                fixed = Sandbox.extract_code(fix_viz)
+                if fixed and ("<html" in fixed.lower() or "<script" in fixed.lower()):
+                    html_extract = fixed
+                    html_valid = True
+
+            if html_valid or bypass:
+                output_parts.append(
+                    "\n\n---\n## 🔬 Stage 3: 3D Chip Architecture Visualization\n"
+                    f"<!--ARTIFACT_HTML-->\n{html_extract}\n<!--/ARTIFACT_HTML-->"
+                )
+            else:
+                output_parts.append("\n\n---\n## 🔬 Stage 3\n> ⚠️ 3D rendering failed. Design data above is valid.\n")
+        else:
+            output_parts.append("\n\n---\n## 🔬 Stage 3\n> ⚠️ Could not generate 3D visualization.\n")
+
+        # Missing tools guide
+        missing = [t for t, ok in eda_tools.items() if not ok and t in ['iverilog', 'yosys', 'ngspice', 'gdstk']]
+        if missing:
+            output_parts.append("\n\n---\n### 📦 Missing EDA Tools\n```bash\n")
+            apt_t = [t for t in missing if t != 'gdstk']
+            if apt_t:
+                output_parts.append(f"sudo apt-get install -y {' '.join(apt_t)}\n")
+            if 'gdstk' in missing:
+                output_parts.append("pip install gdstk\n")
+            output_parts.append("```\n")
+
+        if status_callback:
+            status_callback("Chip Design Pipeline complete!", "success", "system", 100)
+
+        return "\n".join(output_parts)
 
     # =====================================================================
     # CODING PIPELINE — Reasoning Sandbox → Code Sandbox → Reflexion

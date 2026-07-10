@@ -2,7 +2,7 @@
   
 # 🧠 DeepThink AIOS (Artificial Intelligence Operating System)
 
-### A Fully Local Multi-Agent AIOS with Dual Sandbox Verification & Dynamic Hardware Scaling
+### A Fully Local Multi-Agent AIOS with Dual Sandbox Verification, Chip Design EDA Pipeline & Dynamic Hardware Scaling
 
 *Running an orchestrated fleet of specialized LLMs on local hardware — from Intel iGPUs to NVIDIA H100s*
 
@@ -16,7 +16,7 @@
 
 ---
 
-DeepThink AIOS is a **production-grade, fully local multi-agent Artificial Intelligence Operating System (AIOS)** designed to run multiple specialized LLMs locally on consumer and enterprise hardware. By leveraging a high-performance **6-Way Routing Pipeline**, DeepThink AIOS analyzes user intent to route queries through optimal reasoning, coding, math, predictive, and visual paths—**all executing 100% offline with zero cloud API dependencies.**
+DeepThink AIOS is a **production-grade, fully local multi-agent Artificial Intelligence Operating System (AIOS)** designed to run multiple specialized LLMs locally on consumer and enterprise hardware. By leveraging a high-performance **7-Way Routing Pipeline**, DeepThink AIOS analyzes user intent to route queries through optimal reasoning, coding, math, predictive, visual, and **semiconductor chip design** paths—**all executing 100% offline with zero cloud API dependencies.**
 
 At startup, the system auto-calibrates to the available compute environment (CUDA, Intel XPU/SYCL, or CPU), scaling context windows, batch sizes, scraping depth, memory thresholds, and execution configurations dynamically.
 
@@ -29,8 +29,8 @@ At startup, the system auto-calibrates to the available compute environment (CUD
 ## 🚀 Key Highlights & Achievements
 
 * **India Agentic AI Open Hackathon 2026 Submission** (Shortlisting Round: July 9, 2026)
-* **6-Way Intelligent Orchestration:** Transitions away from simple chat/search toggles to an intent-aware routing network.
-* **Dual-Sandbox Code & Logic Verification:** Built-in isolated polyglot runtime environment verifying code outputs across 9 languages.
+* **7-Way Intelligent Orchestration:** Transitions away from simple chat/search toggles to an intent-aware routing network — now including a dedicated **Chip Design EDA pipeline**.
+* **Dual-Sandbox Code & Logic Verification:** Built-in isolated polyglot runtime environment verifying code outputs across 13 languages (including Verilog, SystemVerilog, and SPICE).
 * **Dynamic Memory Allocator (DMA):** Out-of-memory (OOM) protection allowing large models (up to 7B parameters) to run seamlessly on consumer hardware (e.g. 16GB RAM / Intel Iris Xe iGPUs) using LRU-based swapping.
 * **Claude-Style Interactive Visual Sandbox:** Generates live, glassmorphic Three.js 3D physics engines and Plotly.js charts rendered in secure iframe sandboxes.
 
@@ -64,9 +64,16 @@ The system is constructed with a highly decoupled client-server architecture uti
 * **Quantum Computing Simulations:** `qiskit`, `qutip`
 * **Cybersecurity & Cryptography:** `cryptography` (Fernet, AES, RSA), `scapy` (Interactive packet crafting/sniffing), `pyjwt`, `pycryptodome`
 
+### Chip Design EDA Toolchain (Open-Source)
+* **RTL Simulation:** Icarus Verilog (`iverilog`) — Verilog/SystemVerilog compilation & simulation
+* **Logic Synthesis:** Yosys (`yosys`) — Open-source synthesis suite with gate-level statistics
+* **SPICE Simulation:** Ngspice (`ngspice`) — Analog/mixed-signal circuit simulation
+* **Physical Layout:** `gdstk` — GDSII file generation for semiconductor physical layout
+* **Verification:** KLayout (`klayout`) — Optional DRC/LVS physical rule checking
+
 ---
 
-## 🤖 6-Way Agentic Pipeline Architecture
+## 🤖 7-Way Agentic Pipeline Architecture
 
 ```
                        User Prompt + Uploaded Image
@@ -81,24 +88,25 @@ The system is constructed with a highly decoupled client-server architecture uti
                       │    Phi-3.5-Mini Router    │ (Intent & Mode Classifier)
                       └─────────────┬─────────────┘
                                     │
-    ┌───────────────┬───────────────┼───────────────┬────────────────┬──────────────┐
-    ▼               ▼               ▼               ▼                ▼              ▼
-  [PATH A]       [PATH B]        [PATH C]        [PATH D]         [PATH E]       [PATH F]
-   SIMPLE         CODING        REASONING       PREDICTION      EXTREME SEARCH    3D VIZ
-    │               │               │               │                │              │
-    ▼               ▼               ▼               ▼                ▼              ▼
-Phi-3.5-Mini   OpenCodeDS     DeepSeek R1-7B  OpenCodeDS       DeepSeek R1    OpenCodeDS
- Direct Ans    Actor-Critic   / VibeThinker 3B ML Regression   Deep Analysis   WebGL & JS
-    │               │               │               │                │              │
-    ▼               ▼               ▼               ▼                ▼              ▼
-Web Search    Execution      Verification +    Data Cleaning   DeepSeek R1    Reflexion
- (Simple)     Sandbox        DS-R1 Synthesis   Loop (SciPy)   Plotly Charts  Sandbox Loop
-    │               │               │               │                │              │
-    └───────────────┴───────────────┴───────────────┴────────────────┴──────────────┘
+    ┌──────────┬──────────┬──────────┬───────────┬──────────┬──────────┬──────────┐
+    ▼          ▼          ▼          ▼           ▼          ▼          ▼
+  [PATH A]  [PATH B]   [PATH C]   [PATH D]   [PATH E]   [PATH F]   [PATH G]
+   SIMPLE    CODING   REASONING  PREDICTION  EXTREME     3D VIZ   CHIP DESIGN
+    │          │          │          │        SEARCH       │          │
+    ▼          ▼          ▼          ▼           ▼          ▼          ▼
+ Phi-3.5   OpenCode   DeepSeek   OpenCode   DeepSeek   OpenCode   DeepSeek R1
+  Direct   Actor-     R1-7B /    ML Regr.   R1 Deep    WebGL &    Architecture
+  Answer   Critic     VibeThnkr             Analysis   JS Gen     Decompose
+    │          │          │          │           │          │          │
+    ▼          ▼          ▼          ▼           ▼          ▼          ▼
+  Search   Execution  Sandbox    Data Clean  Plotly     Reflexion  Verilog/SPICE
+ (Simple)  Sandbox    Verify     Loop(SciPy) Charts     Loop       + EDA Verify
+    │          │          │          │           │          │          │
+    └──────────┴──────────┴──────────┴───────────┴──────────┴──────────┘
                                     │
                                     ▼
                              Streamed Response
-                         (Answer + Code + 3D Visual)
+                      (Answer + Code + 3D Visual + HDL)
 ```
 
 ```mermaid
@@ -119,6 +127,7 @@ flowchart TD
     CLASSIFY --> PATH_PREDICT["4. PREDICTION"]
     CLASSIFY --> PATH_3D["5. 3D VIZ"]
     CLASSIFY --> PATH_EXTREME["6. EXTREME WEBSEARCH"]
+    CLASSIFY --> PATH_CHIP["7. CHIP DESIGN"]
 
     %% ── 1. SIMPLE PATHWAY ──
     PATH_SIMPLE --> SIMPLE_ANS["Phi-3.5 Mini: Answer directly with web context"]
@@ -193,8 +202,21 @@ flowchart TD
     EXT_PLOT --> EXT_SB{"Execution Sandbox: Verify JSON Output"}
     EXT_SB -->|Success| EXT_PASS["Output Deep Analysis Report + Interactive Charts"]
 
+    %% ── 7. CHIP DESIGN PATHWAY ──
+    PATH_CHIP --> CHIP_ARCH["DeepSeek R1-7B: Architecture Decomposition"]
+    CHIP_ARCH --> CHIP_HDL{"Analog or Digital?"}
+    CHIP_HDL -->|Digital| CHIP_VERILOG["DeepSeek R1-7B: Verilog RTL + Testbench"]
+    CHIP_HDL -->|Analog| CHIP_SPICE["DeepSeek R1-7B: SPICE Netlist"]
+    CHIP_VERILOG --> CHIP_EDA{"iverilog + Yosys Sandbox"}
+    CHIP_SPICE --> CHIP_NGSPICE{"Ngspice Sandbox"}
+    CHIP_EDA -->|Errors| CHIP_FIX["Reflexion: Auto-correct HDL"]
+    CHIP_FIX --> CHIP_EDA
+    CHIP_EDA -->|Verified| CHIP_3D["OpenCode: Three.js 3D Chip Layer Viz"]
+    CHIP_NGSPICE --> CHIP_3D
+    CHIP_3D --> CHIP_PASS["Output HDL + Synthesis Stats + 3D Visual"]
+
     %% ── FINAL RENDERING TERMINUS ──
-    SIMPLE_ANS & VIZ_PASS & EXT_PASS --> RENDER_UI["💻 React Frontend UI / Chat Output"]
+    SIMPLE_ANS & VIZ_PASS & EXT_PASS & CHIP_PASS --> RENDER_UI["💻 React Frontend UI / Chat Output"]
 
     %% ── STYLING ──
     classDef default fill:#1E1E1E,stroke:#4A4A4A,stroke-width:2px,color:#FFF;
@@ -204,8 +226,8 @@ flowchart TD
     classDef terminal fill:#1B5E20,stroke:#4CAF50,stroke-width:2px,color:#FFF;
     
     class USER,ROUTER,OPT_QUERY,SCRAPE,CLASSIFY gateway;
-    class PATH_SIMPLE,PATH_REASONING,PATH_CODING,PATH_PREDICT,PATH_3D,PATH_EXTREME,P_3D_GATE routing;
-    class REASON_SB,CODING_SB,P_SB,VIZ_SB,EXT_SB sandbox;
+    class PATH_SIMPLE,PATH_REASONING,PATH_CODING,PATH_PREDICT,PATH_3D,PATH_EXTREME,PATH_CHIP,P_3D_GATE routing;
+    class REASON_SB,CODING_SB,P_SB,VIZ_SB,EXT_SB,CHIP_EDA,CHIP_NGSPICE sandbox;
     class RENDER_UI terminal;
 ```
 
@@ -217,6 +239,7 @@ flowchart TD
 4. **PREDICTION:** A specialized ML pipeline that scrapes target web sources, cleans data frames, performs model fitting (Scikit-Learn/SciPy), and outputs regression/forecast statistics.
 5. **EXTREME WEBSEARCH:** Employs DeepSeek R1-7B to perform deep thematic synthesis over scraped pages and generate Plotly visualizations directly, avoiding model-swapping overhead.
 6. **3D VISUALIZATION:** Generates interactive Three.js physics scenes or Plotly.js canvases rendered directly in the web frontend.
+7. **CHIP DESIGN:** A 3-stage semiconductor design pipeline: (a) DeepSeek-R1 decomposes the architecture into sub-modules with pin contracts, (b) generates synthesizable Verilog/SPICE code verified through iverilog + Yosys with a reflexion auto-correction loop, and (c) produces interactive 3D chip layer visualizations using Three.js.
 
 ---
 
@@ -248,8 +271,9 @@ Automatically scales execution parameters based on detected GPU compute capabili
 
 ### 3 — Isolated Polyglot Sandbox
 Executes generated code safely inside a 3-tier isolated environment:
-* **Languages Supported:** Python, C, C++, Java, JavaScript, Go, Rust, Bash, TypeScript.
-* **Libraries Pre-Whitelisted:** `numpy`, `scipy`, `pandas`, `sklearn`, `plotly`, `sympy`, `networkx`, `z3-solver`.
+* **Languages Supported:** Python, C, C++, Java, JavaScript, Go, Rust, Bash, TypeScript, **Verilog, SystemVerilog, SPICE, Yosys TCL** (13 total).
+* **Libraries Pre-Whitelisted:** `numpy`, `scipy`, `pandas`, `sklearn`, `plotly`, `sympy`, `networkx`, `z3-solver`, `gdstk`.
+* **EDA Tool Integration:** `iverilog` (compile + simulate), `yosys` (synthesize), `ngspice` (SPICE simulation), `klayout` (DRC verification).
 * **Reflexion Loop:** Code syntax or runtime errors automatically spawn self-correction loops to repair the code before outputting results.
 
 ---
@@ -318,6 +342,57 @@ Specifically tuned for predictive analysis and time-series regression tasks:
 * **Fit-And-Evaluate Loop:** Generates a clean regression script (utilizing Scikit-Learn or SciPy) to fit models, split train/test partitions (80/20), and measure coefficient of determination ($R^2$).
 * **Format-Compliance Checker:** At the script's end, it prints a unified JSON metrics block. If this printing logic fails but the execution itself succeeds, the pipeline captures it as a best-effort text outcome.
 
+### 5. Chip Design EDA Pipeline Flow
+A dedicated 3-stage semiconductor design pipeline integrated directly into the orchestrator:
+
+```
+  User: "Design a 4-bit ALU in Verilog"
+                │
+                ▼
+  ┌─────────────────────────────────┐
+  │  Stage 1: Architecture Decomp   │  (DeepSeek-R1-7B)
+  │  → Sub-module pin contracts     │
+  │  → Interconnection strategy     │
+  └───────────────┬─────────────────┘
+                  │
+         ┌────────┴────────┐
+         ▼                 ▼
+  ┌─────────────┐   ┌─────────────┐
+  │   Digital    │   │   Analog    │
+  │  (Verilog)   │   │  (SPICE)    │
+  └──────┬──────┘   └──────┬──────┘
+         │                 │
+         ▼                 ▼
+  ┌─────────────┐   ┌─────────────┐
+  │  iverilog    │   │  Ngspice    │
+  │  compile +   │   │  batch sim  │
+  │  simulate    │   │             │
+  └──────┬──────┘   └──────┬──────┘
+         │                 │
+    [Error?]───►Reflexion   │
+         │     Loop (×2)   │
+         ▼                 │
+  ┌─────────────┐          │
+  │   Yosys     │          │
+  │  synthesis  │          │
+  │  + stats    │          │
+  └──────┬──────┘          │
+         └────────┬────────┘
+                  ▼
+  ┌─────────────────────────────────┐
+  │  Stage 3: 3D Chip Visualization │  (OpenCodeInterpreter)
+  │  → Three.js stacked layers     │
+  │  → Glassmorphic layer legend    │
+  └─────────────────────────────────┘
+```
+
+* **Architecture Decomposition:** DeepSeek-R1 breaks down high-level design requests into sub-module specifications with precise port definitions (widths, directions, timing).
+* **HDL Generation & EDA Verification:** Generates synthesizable Verilog RTL with self-checking testbenches. Compiled and simulated using `iverilog`, synthesized using `Yosys`, with a 2-attempt reflexion loop that feeds error logs back for auto-correction.
+* **SPICE Path:** Analog circuit requests generate Ngspice-compatible netlists with `.tran`/`.dc`/`.ac` analysis commands.
+* **Physical Layout Visualization:** Produces interactive Three.js 3D renderings of semiconductor layer stacks (substrate → wells → polysilicon → metal layers → vias).
+* **Graceful Degradation:** When EDA tools aren't installed, the pipeline still generates correct HDL code and visualizations — it simply skips the verification step and shows installation instructions.
+* **Hardware Interface Registry:** Pin contracts for generated modules are persisted in the RAG memory layer, enabling multi-turn hierarchical designs where sub-modules can be recalled and interconnected across sessions.
+
 ---
 
 ## 📂 Directory Structure
@@ -328,16 +403,20 @@ Below is the layout of the project directories and the purpose of each primary c
 Team_Trenches/
 ├── backend/
 │   ├── app.py                # FastAPI main application server & endpoint handlers
-│   ├── orchestrator.py       # Core Multi-Agent Orchestrator & Pipeline logic
+│   ├── orchestrator.py       # Core Multi-Agent Orchestrator & 7-Way Pipeline logic
 │   ├── downloader.py         # Multi-threaded Hugging Face model downloader
-│   ├── memory.py             # Memory controllers & RAG database manager
-│   ├── sandbox.py            # Code execution environments & verification sandbox
+│   ├── memory.py             # Memory controllers, RAG database & HW interface registry
+│   ├── sandbox.py            # Polyglot code execution (13 languages) & EDA verification
+│   ├── eda_setup.py          # EDA toolchain detector & auto-installer (iverilog, yosys, etc.)
 │   ├── search.py             # Web search integrations (DuckDuckGo, etc.)
 │   ├── repo_map.py           # Helper script for repository structures
 │   └── benchmark_runner.py   # Benchmark execution and reporting engine
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx           # Main React component (dynamic UI, glassmorphic layout, stream parsers)
+│   │   ├── components/
+│   │   │   └── layout/
+│   │   │       └── SettingsModal.jsx  # Settings with 7 routing modes (incl. Chip Design)
 │   │   └── main.jsx          # React initialization script
 │   ├── package.json          # Node package dependencies & configurations
 │   ├── index.html            # Main Single Page Application template
@@ -357,6 +436,7 @@ Team_Trenches/
 | **Storage** | 25 GB free space | 45 GB free space |
 | **OS** | Ubuntu 22.04+ / Windows 11 / macOS 14 | Ubuntu 24.04 / macOS 15 |
 | **GPU** | NVIDIA/Intel/AMD (8GB VRAM) | NVIDIA RTX 3090/4090 or Apple Silicon |
+| **EDA Tools** | *(Optional)* | `iverilog`, `yosys`, `ngspice`, `gdstk` for Chip Design pipeline |
 
 ### Quick Start (Linux/macOS)
 
@@ -382,6 +462,14 @@ Team_Trenches/
    ```bash
    chmod +x start.sh
    ./start.sh
+   ```
+
+5. **(Optional) Install EDA Toolchain for Chip Design Pipeline:**
+   ```bash
+   sudo apt-get install -y iverilog yosys ngspice
+   pip install gdstk
+   # Verify installation:
+   python backend/eda_setup.py
    ```
 
 Open `http://localhost:5173` in your web browser. Model weights will download automatically upon first request or can be pre-downloaded via settings.

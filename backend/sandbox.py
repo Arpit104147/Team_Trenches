@@ -124,6 +124,35 @@ LANG_SIGNATURES = {
         'compile': None,
         'run': ['npx', '-y', 'tsx', '{src}'],
     },
+    # ── EDA / Chip Design Languages ──────────────────────────────────────
+    'verilog': {
+        'strong': [r'\bmodule\s+\w+', r'\binput\s+', r'\boutput\s+', r'\balways\s*@', r'\bassign\s+',
+                   r'\breg\s+', r'\bwire\s+', r'\bendmodule\b', r'\binitial\s+begin'],
+        'ext': '.v',
+        'compile': ['iverilog', '-o', '{bin}', '{src}'],
+        'run': ['vvp', '{bin}'],
+    },
+    'systemverilog': {
+        'strong': [r'\bmodule\s+\w+', r'\blogic\s+', r'\balways_ff\s+', r'\balways_comb\b',
+                   r'\binterface\s+\w+', r'\btypedef\s+', r'\bpackage\s+\w+'],
+        'ext': '.sv',
+        'compile': ['iverilog', '-g2012', '-o', '{bin}', '{src}'],
+        'run': ['vvp', '{bin}'],
+    },
+    'spice': {
+        'strong': [r'\.subckt\s+', r'\.tran\s+', r'\.dc\s+', r'\.ac\s+', r'\.end\b',
+                   r'\.model\s+', r'\.param\s+', r'^\.title\b'],
+        'ext': '.cir',
+        'compile': None,
+        'run': ['ngspice', '-b', '{src}'],
+    },
+    'yosys_tcl': {
+        'strong': [r'\bread_verilog\b', r'\bsynth\b', r'\bwrite_verilog\b', r'\bstat\b',
+                   r'\bread_liberty\b', r'\babc\b', r'\bopt\b'],
+        'ext': '.ys',
+        'compile': None,
+        'run': ['yosys', '-s', '{src}'],
+    },
 }
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -212,6 +241,8 @@ ALLOWED_MODULES = {
     'Bio', 'rdkit',
     # Quantum Physics & Rocket Dynamics
     'rocketpy', 'qiskit', 'qutip',
+    # EDA / Chip Design Layout (GDSII generation)
+    'gdstk', 'gdspy',
     # Cybersecurity & Cryptography (pure-crypto only — no network)
     'cryptography', 'jwt', 'pyjwt', 'Crypto', 'jose',
     # 'socket' is whitelisted ONLY so that any code touching it reaches our
@@ -439,6 +470,287 @@ class Sandbox:
             self.clean_all_workspaces()
         except Exception:
             pass
+
+    # ── EDA / Chip Design Methods ────────────────────────────────────────
+
+    @staticmethod
+    def check_eda_tools():
+        """Check which EDA tools are installed and available on the system PATH.
+        Returns a dict mapping tool names to booleans.
+        """
+        tools = {
+            'iverilog': 'iverilog',
+            'vvp': 'vvp',
+            'yosys': 'yosys',
+            'ngspice': 'ngspice',
+            'ghdl': 'ghdl',
+            'klayout': 'klayout',
+            'gdstk': None,  # Python library, checked separately
+        }
+        result = {}
+        for name, cmd in tools.items():
+            if cmd is None:
+                # Python library check
+                try:
+                    __import__(name)
+                    result[name] = True
+                except ImportError:
+                    result[name] = False
+            else:
+                result[name] = shutil.which(cmd) is not None
+        return result
+
+    def execute_eda_flow(self, rtl_code, testbench_code=None, synth_target='generic',
+                         run_simulation=True, run_synthesis=True):
+        """Execute a full EDA verification flow: compile → simulate → synthesize.
+
+        Args:
+            rtl_code: Verilog/SystemVerilog RTL source code
+            testbench_code: Optional testbench code (appended as separate file)
+            synth_target: Synthesis target ('generic' or path to liberty file)
+            run_simulation: Whether to run iverilog simulation
+            run_synthesis: Whether to run Yosys synthesis
+
+        Returns:
+            dict with keys: 'success', 'sim_output', 'sim_passed', 'synth_output',
+                           'gate_count', 'netlist', 'errors'
+        """
+        result = {
+            'success': False,
+            'sim_output': '',
+            'sim_passed': False,
+            'synth_output': '',
+            'gate_count': 0,
+            'netlist': '',
+            'errors': [],
+            'tools_available': self.check_eda_tools(),
+        }
+
+        temp_dir = tempfile.mkdtemp(prefix='eda_sandbox_')
+        self.active_workspaces.add(temp_dir)
+
+        try:
+            # Write RTL source file
+            rtl_path = os.path.join(temp_dir, 'design.v')
+            with open(rtl_path, 'w') as f:
+                f.write(rtl_code)
+
+            # Write testbench if provided
+            tb_path = None
+            if testbench_code:
+                tb_path = os.path.join(temp_dir, 'testbench.v')
+                with open(tb_path, 'w') as f:
+                    f.write(testbench_code)
+
+            # ── Step 1: Verilog Compilation & Simulation ─────────────────
+            if run_simulation and result['tools_available'].get('iverilog'):
+                sim_bin = os.path.join(temp_dir, 'sim_out')
+                compile_cmd = ['iverilog', '-o', sim_bin]
+                compile_cmd.append(rtl_path)
+                if tb_path:
+                    compile_cmd.append(tb_path)
+
+                try:
+                    comp_result = self._run_with_kill(compile_cmd, timeout=60, cwd=temp_dir)
+                    compile_output = (comp_result.stdout or '') + (comp_result.stderr or '')
+
+                    if comp_result.returncode != 0:
+                        result['errors'].append(f"iverilog compilation failed:\n{compile_output}")
+                        result['sim_output'] = compile_output
+                        return result
+
+                    # Run simulation
+                    if os.path.exists(sim_bin):
+                        sim_result = self._run_with_kill(['vvp', sim_bin], timeout=120, cwd=temp_dir)
+                        sim_output = (sim_result.stdout or '') + (sim_result.stderr or '')
+                        result['sim_output'] = self._truncate_output(sim_output)
+
+                        # Check for simulation pass/fail
+                        sim_lower = sim_output.lower()
+                        has_fail = any(kw in sim_lower for kw in ['fail', 'error', 'mismatch', 'assertion failed'])
+                        has_pass = any(kw in sim_lower for kw in ['pass', 'all tests passed', 'test passed', 'success'])
+
+                        if sim_result.returncode == 0 and not has_fail:
+                            result['sim_passed'] = True
+                        elif has_pass and not has_fail:
+                            result['sim_passed'] = True
+                    else:
+                        result['errors'].append("iverilog compiled but produced no output binary")
+
+                except subprocess.TimeoutExpired:
+                    result['errors'].append("Simulation timed out (120s limit)")
+                except Exception as e:
+                    result['errors'].append(f"Simulation error: {str(e)}")
+
+            elif run_simulation and not result['tools_available'].get('iverilog'):
+                result['errors'].append("iverilog not installed. Install with: apt-get install iverilog")
+
+            # ── Step 2: Yosys Synthesis ──────────────────────────────────
+            if run_synthesis and result['tools_available'].get('yosys'):
+                netlist_path = os.path.join(temp_dir, 'netlist.v')
+                stats_path = os.path.join(temp_dir, 'stats.txt')
+
+                # Build Yosys synthesis script
+                synth_script = f"read_verilog {rtl_path}\n"
+                synth_script += "hierarchy -auto-top\n"
+                synth_script += "proc; opt; fsm; opt; memory; opt\n"
+
+                if synth_target != 'generic' and os.path.exists(synth_target):
+                    synth_script += f"read_liberty -lib {synth_target}\n"
+                    synth_script += "abc -liberty " + synth_target + "\n"
+                else:
+                    synth_script += "synth\n"
+
+                synth_script += "opt_clean -purge\n"
+                synth_script += f"write_verilog {netlist_path}\n"
+                synth_script += f"tee -o {stats_path} stat\n"
+
+                ys_path = os.path.join(temp_dir, 'synth.ys')
+                with open(ys_path, 'w') as f:
+                    f.write(synth_script)
+
+                try:
+                    synth_result = self._run_with_kill(
+                        ['yosys', '-s', ys_path], timeout=120, cwd=temp_dir
+                    )
+                    synth_output = (synth_result.stdout or '') + (synth_result.stderr or '')
+                    result['synth_output'] = self._truncate_output(synth_output)
+
+                    if synth_result.returncode != 0:
+                        result['errors'].append(f"Yosys synthesis failed:\n{synth_output[-500:]}")
+                    else:
+                        # Parse gate count from stats
+                        if os.path.exists(stats_path):
+                            with open(stats_path, 'r') as f:
+                                stats_text = f.read()
+                            import re as _re
+                            cells_match = _re.search(r'Number of cells:\s+(\d+)', stats_text)
+                            if cells_match:
+                                result['gate_count'] = int(cells_match.group(1))
+                            result['synth_output'] += "\n\n--- Synthesis Statistics ---\n" + stats_text
+
+                        # Read synthesized netlist
+                        if os.path.exists(netlist_path):
+                            with open(netlist_path, 'r') as f:
+                                result['netlist'] = f.read()
+
+                except subprocess.TimeoutExpired:
+                    result['errors'].append("Yosys synthesis timed out (120s limit)")
+                except Exception as e:
+                    result['errors'].append(f"Synthesis error: {str(e)}")
+
+            elif run_synthesis and not result['tools_available'].get('yosys'):
+                result['errors'].append("Yosys not installed. Install with: apt-get install yosys")
+
+            # Mark overall success
+            if not result['errors']:
+                result['success'] = True
+            elif result['sim_passed'] and not run_synthesis:
+                result['success'] = True
+
+        finally:
+            # Don't clean workspace yet — caller may need files
+            pass
+
+        return result
+
+    def execute_layout_flow(self, gdstk_script, run_drc=False):
+        """Execute a gdstk Python script to generate GDSII layout and optionally run DRC.
+
+        Args:
+            gdstk_script: Python code using gdstk library to generate layout
+            run_drc: Whether to run KLayout DRC (requires klayout installed)
+
+        Returns:
+            dict with keys: 'success', 'output', 'gds_path', 'layer_info', 'drc_output', 'errors'
+        """
+        result = {
+            'success': False,
+            'output': '',
+            'gds_path': '',
+            'layer_info': [],
+            'drc_output': '',
+            'errors': [],
+        }
+
+        temp_dir = tempfile.mkdtemp(prefix='eda_layout_')
+        self.active_workspaces.add(temp_dir)
+
+        try:
+            gds_output_path = os.path.join(temp_dir, 'output.gds')
+
+            # Wrap the user script to ensure it writes to our known output path
+            wrapped_script = (
+                "import sys\n"
+                f"_GDS_OUTPUT_PATH = {repr(gds_output_path)}\n"
+                "# User gdstk layout script:\n"
+                + gdstk_script + "\n"
+                "# Auto-save if the user didn't explicitly write:\n"
+                "import os as _os\n"
+                f"if not _os.path.exists({repr(gds_output_path)}):\n"
+                "    # Try to find the library object and write it\n"
+                "    import gc as _gc\n"
+                "    try:\n"
+                "        import gdstk as _gdstk\n"
+                "        for obj in _gc.get_objects():\n"
+                "            if isinstance(obj, _gdstk.Library):\n"
+                f"                obj.write_gds({repr(gds_output_path)})\n"
+                "                break\n"
+                "    except Exception:\n"
+                "        pass\n"
+            )
+
+            # Execute in the standard Python sandbox (unrestricted — needs file I/O)
+            py_path = os.path.join(temp_dir, 'layout_gen.py')
+            with open(py_path, 'w') as f:
+                f.write(wrapped_script)
+
+            try:
+                run_result = self._run_with_kill(
+                    [sys.executable, py_path], timeout=120, cwd=temp_dir
+                )
+                output = (run_result.stdout or '') + (run_result.stderr or '')
+                result['output'] = self._truncate_output(output)
+
+                if run_result.returncode != 0:
+                    result['errors'].append(f"Layout generation failed:\n{output}")
+                elif os.path.exists(gds_output_path):
+                    result['gds_path'] = gds_output_path
+                    result['success'] = True
+
+                    # Extract layer info from the generated GDS for 3D rendering
+                    try:
+                        import gdstk
+                        lib = gdstk.read_gds(gds_output_path)
+                        layers_seen = set()
+                        for cell in lib.cells:
+                            for poly in cell.polygons:
+                                layers_seen.add((poly.layer, poly.datatype))
+                            for path in cell.paths:
+                                layers_seen.add((path.layers[0], path.datatypes[0]))
+                        result['layer_info'] = sorted(layers_seen)
+                    except ImportError:
+                        result['layer_info'] = []
+                    except Exception as e:
+                        result['layer_info'] = []
+                        result['errors'].append(f"GDS layer parsing warning: {str(e)}")
+                else:
+                    result['errors'].append("Script ran but no GDS file was generated")
+
+            except subprocess.TimeoutExpired:
+                result['errors'].append("Layout generation timed out (120s limit)")
+            except Exception as e:
+                result['errors'].append(f"Layout generation error: {str(e)}")
+
+            # ── Optional DRC ────────────────────────────────────────────
+            if run_drc and result['success'] and self.check_eda_tools().get('klayout'):
+                # KLayout batch DRC would go here
+                result['drc_output'] = "DRC check skipped (no DRC rule deck configured)"
+
+        finally:
+            pass
+
+        return result
 
     # ── Utility Methods ──────────────────────────────────────────────────
     @staticmethod
@@ -1277,7 +1589,8 @@ class Sandbox:
         if generic_match:
             content = generic_match.group(1).strip()
             first_line = content.split('\n')[0].strip().lower()
-            known_tags = ['html', 'python', 'py', 'javascript', 'js', 'css', 'bash', 'sh', 'c', 'cpp', 'c++', 'java']
+            known_tags = ['html', 'python', 'py', 'javascript', 'js', 'css', 'bash', 'sh', 'c', 'cpp', 'c++', 'java',
+                          'verilog', 'v', 'sv', 'systemverilog', 'spice', 'vhdl', 'tcl']
             if first_line in known_tags:
                 return _sanitize("\n".join(content.split('\n')[1:]))
             return _sanitize(content)
@@ -1307,7 +1620,8 @@ class Sandbox:
         if generic_unclosed:
             content = generic_unclosed.group(1).strip()
             first_line = content.split('\n')[0].strip().lower()
-            known_tags = ['html', 'python', 'py', 'javascript', 'js', 'css', 'bash', 'sh', 'c', 'cpp', 'c++', 'java']
+            known_tags = ['html', 'python', 'py', 'javascript', 'js', 'css', 'bash', 'sh', 'c', 'cpp', 'c++', 'java',
+                          'verilog', 'v', 'sv', 'systemverilog', 'spice', 'vhdl', 'tcl']
             if first_line in known_tags:
                 return _sanitize("\n".join(content.split('\n')[1:]))
             return _sanitize(content)

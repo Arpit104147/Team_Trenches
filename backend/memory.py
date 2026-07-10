@@ -483,3 +483,118 @@ class Memory:
 
         return mem_id
 
+    def store(self, task, doc, metadata=None, embed_fn=None):
+        """General-purpose store method — alias for save() with a pre-built doc.
+        Used by pipelines that construct their own document format (e.g., chip design).
+        """
+        if self._is_duplicate(task):
+            return None
+
+        mem_id = f"mem_{uuid.uuid4().hex}"
+        meta = metadata if metadata else {"task": task, "type": "solution"}
+
+        # Save to Chroma
+        if self.use_chroma:
+            try:
+                self.collection.add(documents=[doc], metadatas=[meta], ids=[mem_id])
+            except Exception as e:
+                print(f"Chroma store failed: {str(e)}")
+
+        # Save to SQLite
+        emb_blob = None
+        if embed_fn:
+            try:
+                emb = embed_fn(task)
+                emb_blob = np.array(emb, dtype=np.float32).tobytes()
+            except Exception as e:
+                print(f"Embedding generation failed: {str(e)}")
+
+        with sqlite3.connect(self.sqlite_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO memories (id, task, doc, metadata, embedding) VALUES (?, ?, ?, ?, ?)",
+                (mem_id, task, doc, json.dumps(meta), emb_blob)
+            )
+            conn.commit()
+
+        return mem_id
+
+    # ── Chip Design: Hardware Interface Pin Contract Registry ─────────
+
+    def store_hw_interface(self, module_name, ports_dict, metadata=None):
+        """Store a hardware module's pin interface for hierarchical chip design.
+
+        Args:
+            module_name: Name of the Verilog module (e.g., 'alu_4bit')
+            ports_dict: Dict of port definitions, e.g.:
+                {'a': {'dir': 'input', 'width': 4},
+                 'b': {'dir': 'input', 'width': 4},
+                 'result': {'dir': 'output', 'width': 4}}
+            metadata: Optional extra metadata (project tag, etc.)
+        """
+        task = f"hw_interface:{module_name}"
+        doc = json.dumps({
+            'module': module_name,
+            'ports': ports_dict,
+            'timestamp': _time.time(),
+        })
+        meta = metadata or {}
+        meta['type'] = 'hw_interface'
+        meta['module_name'] = module_name
+
+        return self.store(task, doc, metadata=meta)
+
+    def recall_hw_interface(self, module_name):
+        """Retrieve a specific hardware module's pin interface.
+
+        Args:
+            module_name: Name of the module to look up
+
+        Returns:
+            dict with 'module' and 'ports' keys, or None if not found
+        """
+        task_key = f"hw_interface:{module_name}"
+
+        with sqlite3.connect(self.sqlite_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT doc FROM memories WHERE task = ? ORDER BY created_at DESC LIMIT 1",
+                (task_key,)
+            )
+            row = cursor.fetchone()
+
+        if row:
+            try:
+                return json.loads(row[0])
+            except Exception:
+                return None
+        return None
+
+    def recall_all_hw_interfaces(self, project_tag=None):
+        """Retrieve all stored hardware interfaces, optionally filtered by project.
+
+        Args:
+            project_tag: Optional project identifier to filter by
+
+        Returns:
+            list of dicts, each with 'module' and 'ports' keys
+        """
+        with sqlite3.connect(self.sqlite_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT doc, metadata FROM memories WHERE task LIKE 'hw_interface:%' ORDER BY created_at DESC"
+            )
+            rows = cursor.fetchall()
+
+        interfaces = []
+        for doc_str, meta_str in rows:
+            try:
+                meta = json.loads(meta_str) if meta_str else {}
+                if project_tag and meta.get('project') != project_tag:
+                    continue
+                interface = json.loads(doc_str)
+                interfaces.append(interface)
+            except Exception:
+                continue
+
+        return interfaces
