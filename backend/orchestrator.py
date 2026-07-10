@@ -484,7 +484,7 @@ class AgentOrchestrator:
                 is_low_vram_single = (single_gpu_vram_gb <= 16)
                 is_high_vram_high_ram_single = (single_gpu_vram_gb >= 16 and self.total_ram_gb >= 32)
                 
-                if not self.dual_gpu_pipeline and (is_low_vram_single or is_high_vram_high_ram_single):
+                if is_low_vram_single or is_high_vram_high_ram_single:
                     self.kaggle_hotswap_mode = True
                     # EVM guarantees proactive model flushing before every load,
                     # so we can safely use 95% of VRAM and RAM (only 5% reserve).
@@ -730,7 +730,8 @@ class AgentOrchestrator:
             vram_allowed_ceiling = min(4096, vram_allowed_ceiling)
         else:
             try:
-                free_vram, total_vram = torch.cuda.mem_get_info(0)
+                target_gpu = 1 if getattr(self, 'dual_gpu_pipeline', False) and model_key in ["deepseek_r1", "qwen_vl"] else 0
+                free_vram, total_vram = torch.cuda.mem_get_info(target_gpu)
                 free_vram_gb = free_vram / (1024 ** 3)
                 total_vram_gb = total_vram / (1024 ** 3)
                 vram_used_pct = (total_vram - free_vram) / total_vram * 100
@@ -790,7 +791,8 @@ class AgentOrchestrator:
         vram_limit = hard_limit
         if torch and torch.cuda.is_available():
             try:
-                free_vram = self._get_vram_free_gb(0)
+                target_gpu = 1 if getattr(self, 'dual_gpu_pipeline', False) and model_key in ["deepseek_r1", "qwen_vl"] else 0
+                free_vram = self._get_vram_free_gb(target_gpu)
                 if free_vram is not None:
                     # In EVM mode, if other models are loaded, their VRAM will be freed.
                     # Calculate VRAM that will be freed by unloading other models
