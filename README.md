@@ -48,30 +48,131 @@ DeepThink AIOS is a **production-grade, fully offline multi-agent system** that 
 
 ## 🔀 Pipeline Architecture
 
-```
-                       User Prompt + Image
-                              │
-                              ▼
-                    ┌───────────────────┐
-                    │  Qwen-VL (Vision) │
-                    └────────┬──────────┘
-                             │
-                    ┌────────▼──────────┐
-                    │ Phi-3.5 (Router)  │
-                    └────────┬──────────┘
-                             │
-   ┌─────────┬─────────┬─────┴─────┬──────────┬──────────┬──────────┐
-   ▼         ▼         ▼           ▼          ▼          ▼          ▼
- SIMPLE   CODING   REASONING  PREDICTION  EXTREME    3D VIZ    CHIP DESIGN
-   │         │         │           │       SEARCH       │          │
-   ▼         ▼         ▼           ▼          ▼         ▼          ▼
- Phi-3.5  Ornith    DeepSeek    Ornith    DeepSeek   Ornith    DeepSeek
- Direct   9B Self-  R1 CoT +   ML Script  R1 Deep   WebGL/    Architecture
- Answer   Scaffold  Sandbox    + SciKit   Analysis   Three.js  + EDA Verify
-   │         │         │           │          │         │          │
-   └─────────┴─────────┴───────────┴──────────┴─────────┴──────────┘
-                              │
-                       Streamed Response
+```mermaid
+flowchart TD
+    %% ── TOP-LEVEL INGESTION ──
+    USER([User Prompt]) --> ROUTER["Router: Phi-3.5 Mini"]
+    
+    ROUTER -->|Search Query Triggered| OPT_QUERY["Phi 3.5 Mini: Generate optimized query"]
+    OPT_QUERY --> SCRAPE["Scrape Web Snippets & Live Data"]
+    SCRAPE --> CLASSIFY["Phi-3.5 Mini: Intent Classification"]
+    
+    ROUTER -->|No Search| CLASSIFY
+
+    %% ── Intent Classification Branches ──
+    CLASSIFY --> PATH_SIMPLE["1. SIMPLE"]
+    CLASSIFY --> PATH_CODING["2. CODING"]
+    CLASSIFY --> PATH_REASONING["3. REASONING (PAL)"]
+    CLASSIFY --> PATH_PREDICT["4. PREDICTION"]
+    CLASSIFY --> PATH_3D["5. 3D VIZ"]
+    CLASSIFY --> PATH_EXTREME["6. EXTREME WEBSEARCH"]
+    CLASSIFY --> PATH_CHIP["7. CHIP DESIGN"]
+
+    %% ── 1. SIMPLE PATHWAY ──
+    PATH_SIMPLE --> SIMPLE_ANS["Phi-3.5 Mini: Answer directly with web context"]
+
+    %% ── 2. REASONING PATHWAY (PAL) ──
+    PATH_REASONING --> REASON_BRANCH{"Playground Verifiable?"}
+    REASON_BRANCH -->|Yes| PAL_DRAFT["Ornith 9B: Write SymPy/Verification Script"]
+    PAL_DRAFT --> PAL_SB{"Execution Sandbox"}
+    
+    PAL_SB -->|Verified Success| DS_SYNTH["DeepSeek R1-7B: Pedagogical LaTeX Synthesis"]
+    DS_SYNTH --> REASON_PASS["Pass final verified math solution"]
+    
+    PAL_SB -->|Syntax/Linter Error| VT_LINT["VibeThinker 3B: Rapid Agent IDE patch"]
+    VT_LINT --> PAL_SB
+    
+    PAL_SB -->|Logic / Formula Error| DS_FIX["DeepSeek R1-7B: Adjust logic & retry"]
+    DS_FIX --> PAL_DRAFT
+
+    REASON_BRANCH -->|No| DS_THEORY["DeepSeek R1-7B: Direct detailed academic LaTeX derivation"]
+    DS_THEORY --> REASON_PASS
+
+    %% ── 3. CODING PATHWAY ──
+    PATH_CODING --> C_DRAFT["Ornith 9B: Self-Scaffold & Code Generation"]
+    C_DRAFT --> CODING_SB{"Execution Sandbox"}
+    
+    CODING_SB -->|Verified Success| CODE_PASS["Output final Verified Code Block"]
+    
+    CODING_SB -->|Syntax/Linter Error| VT_CODE_LINT["VibeThinker 3B: Agent IDE surgical patch"]
+    VT_CODE_LINT --> CODING_SB
+    
+    CODING_SB -->|Logic / Runtime Bug| C_FIX["Ornith 9B: Logic self-correction loop"]
+    C_FIX --> C_DRAFT
+    
+    CODING_SB -->|Escalation (Max Retries)| DS_CODE_FIX["DeepSeek R1-7B: Emergency traceback patch"]
+    DS_CODE_FIX --> CODING_SB
+
+    %% ── 4. PREDICTION PATHWAY ──
+    PATH_PREDICT --> P_VRAM["Expand VRAM Context Limits"]
+    P_VRAM --> P_DRAFT["Ornith 9B: Draft Pandas/Scikit-learn Regression Script"]
+    
+    P_DRAFT -->|Empty / Failed Draft| P_DS_FALLBACK["DeepSeek R1-7B Fallback Draft"]
+    P_DRAFT -->|Successful Draft| P_SB{"Sandbox Execution"}
+    P_DS_FALLBACK --> P_SB
+    
+    P_SB -->|Verified Success| P_PASS["Parse 'PREDICTIVE_METRICS' JSON & Render Forecast UI"]
+    P_SB -->|Partial Success| P_BEST_EFFORT["Return Best-Effort Text Results"]
+    P_SB -->|Syntax/Linter Error| P_LINT["VibeThinker 3B: Agent IDE surgical patch"]
+    P_LINT --> P_SB
+    
+    P_SB -->|Runtime / Logic Error| P_CLEAN["Data Cleaning Loop: Ornith full rewrite"]
+    P_CLEAN --> P_SB
+    
+    REASON_PASS & CODE_PASS & P_PASS & P_BEST_EFFORT --> P_3D_GATE{"Triggers 3D Visuals?"}
+    P_3D_GATE -->|Yes| VIZ_DRAFT
+    P_3D_GATE -->|No| RENDER_UI
+
+    %% ── 5. 3D VIZ PATHWAY ──
+    PATH_3D --> VIZ_DRAFT["Ornith 9B: Generate HTML (JS WebGL / Three.js)"]
+    VIZ_DRAFT --> VIZ_SB{"Node.js Sandbox: Verify syntax and DOM API logic"}
+    
+    VIZ_SB -->|Syntax Error| VIZ_LINT["VibeThinker 3B: Agent IDE patch"]
+    VIZ_LINT --> VIZ_SB
+    VIZ_SB -->|DOM/Logic Error| VIZ_FIX["Ornith 9B: Fix JS execution logic"]
+    VIZ_FIX --> VIZ_DRAFT
+    VIZ_SB -->|Success| VIZ_PASS["Output Interactive HTML to Frontend Frame"]
+
+    %% ── 6. EXTREME WEBSEARCH ──
+    PATH_EXTREME --> EXT_VRAM["Expand VRAM to Absolute Max Limit"]
+    EXT_VRAM --> DS_COMPARE["DeepSeek R1-7B: Deep Comparison & Data Structuring"]
+    DS_COMPARE --> EXT_REPORT["Generate Comprehensive Analytical Report"]
+    EXT_REPORT --> EXT_PLOT["DeepSeek R1-7B: Draft Plotly Script directly"]
+    EXT_PLOT --> EXT_SB{"Execution Sandbox: Verify JSON Output"}
+    EXT_SB -->|Success| EXT_PASS["Output Deep Analysis Report + Interactive Charts"]
+
+    %% ── 7. CHIP DESIGN PATHWAY ──
+    PATH_CHIP --> CHIP_ARCH["DeepSeek R1-7B: Architecture Decomposition"]
+    CHIP_HDL{"Analog or Digital?"}
+    CHIP_ARCH --> CHIP_HDL
+    CHIP_HDL -->|Digital| CHIP_VERILOG["DeepSeek R1-7B: Verilog RTL + Testbench"]
+    CHIP_HDL -->|Analog| CHIP_SPICE["DeepSeek R1-7B: SPICE Netlist"]
+    CHIP_VERILOG --> CHIP_EDA{"iverilog + Yosys Sandbox"}
+    CHIP_SPICE --> CHIP_NGSPICE{"Ngspice Sandbox"}
+    
+    CHIP_EDA -->|Syntax/Compile Error| CHIP_VT_LINT["VibeThinker 3B: Agent IDE patch"]
+    CHIP_VT_LINT --> CHIP_EDA
+    CHIP_EDA -->|DRC/Logic Error| CHIP_FIX["Reflexion: DeepSeek R1 Auto-correct HDL"]
+    CHIP_FIX --> CHIP_EDA
+    
+    CHIP_EDA -->|Verified| CHIP_3D["Ornith 9B: Three.js 3D Chip Layer Viz"]
+    CHIP_NGSPICE --> CHIP_3D
+    CHIP_3D --> CHIP_PASS["Output HDL + Synthesis Stats + 3D Visual"]
+
+    %% ── FINAL RENDERING TERMINUS ──
+    SIMPLE_ANS & VIZ_PASS & EXT_PASS & CHIP_PASS --> RENDER_UI["💻 React Frontend UI / Chat Output"]
+
+    %% ── STYLING ──
+    classDef default fill:#1E1E1E,stroke:#4A4A4A,stroke-width:2px,color:#FFF;
+    classDef gateway fill:#2D3748,stroke:#4A5568,stroke-width:2px,color:#FFF;
+    classDef routing fill:#5E2750,stroke:#9C27B0,stroke-width:2px,color:#FFF;
+    classDef sandbox fill:#E65100,stroke:#FF9800,stroke-width:2px,color:#FFF;
+    classDef terminal fill:#1B5E20,stroke:#4CAF50,stroke-width:2px,color:#FFF;
+    
+    class USER,ROUTER,OPT_QUERY,SCRAPE,CLASSIFY gateway;
+    class PATH_SIMPLE,PATH_CODING,PATH_REASONING,PATH_PREDICT,PATH_3D,PATH_EXTREME,PATH_CHIP,P_3D_GATE routing;
+    class REASON_SB,CODING_SB,P_SB,VIZ_SB,EXT_SB,CHIP_EDA,CHIP_NGSPICE,PAL_SB sandbox;
+    class RENDER_UI terminal;
 ```
 
 ### Pipeline Details
