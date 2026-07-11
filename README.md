@@ -100,7 +100,7 @@ flowchart TD
     CODING_SB -->|Logic / Runtime Bug| C_FIX["Ornith 9B: Logic self-correction loop"]
     C_FIX --> C_DRAFT
     
-    CODING_SB -->|Escalation (Max Retries)| DS_CODE_FIX["DeepSeek R1-7B: Emergency traceback patch"]
+    CODING_SB -->|"Escalation (Max Retries)"| DS_CODE_FIX["DeepSeek R1-7B: Emergency traceback patch"]
     DS_CODE_FIX --> CODING_SB
 
     %% ── 4. PREDICTION PATHWAY ──
