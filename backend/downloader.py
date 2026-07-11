@@ -31,10 +31,10 @@ MODEL_DEFINITIONS = {
         'name': 'DeepSeek-R1-7B (Reasoning Engine)',
         'type': 'text',
     },
-    'opencode': {
-        'repo_id': 'MaziyarPanahi/OpenCodeInterpreter-DS-6.7B-GGUF',
-        'filename': 'OpenCodeInterpreter-DS-6.7B.Q6_K.gguf',
-        'name': 'OpenCodeInterpreter 6.7B (3D Visualization Layer)',
+    'ornith': {
+        'repo_id': 'AtomicChat/ornith-9b-GGUF',
+        'filename': 'ornith-1.0-9b-Q6_K.gguf',
+        'name': 'Ornith 1.0-9B (Agentic Coder)',
         'type': 'text',
     },
     'vibethinker': {

@@ -851,7 +851,7 @@ class AgentOrchestrator:
         model_ceilings = {
             "router": min(gpu_ctx_cap, 8192),         # Router only needs up to 8k context
             "vibethinker": min(gpu_ctx_cap, 16384),   # VibeThinker only needs up to 16k context
-            "opencode": min(gpu_ctx_cap, 16384),      # OpenCodeInterpreter capped at 16k
+            "ornith": min(gpu_ctx_cap, 16384),      # Ornith capped at 16k
             "deepseek_r1": gpu_ctx_cap                # DeepSeek-R1 uses full capacity (up to 32k)
         }
         model_cap = model_ceilings.get(model_key, gpu_ctx_cap)
@@ -967,7 +967,7 @@ class AgentOrchestrator:
             pass
         # Fallback estimates based on known model sizes
         size_map = {"router": 3.0, "deepseek_r1": 6.0,
-                    "opencode": 5.2, "qwen_vl": 6.5}
+                    "ornith": 5.2, "qwen_vl": 6.5}
         return size_map.get(model_key, 5.0)
 
     def _check_memory_pressure(self, required_vram_gb=None, target_gpu_idx=None):
@@ -2605,7 +2605,7 @@ class AgentOrchestrator:
         # Redirect all playground script writing to the Router to prevent DeepSeek-R1 thinking tokens
         # from depleting the context window and causing code truncation, or VibeThinker syntax errors.
         if purpose == "reasoning" or model_key in ["deepseek_r1"]:
-            coder_model = self._get_model("opencode", required_ctx=8192)
+            coder_model = self._get_model("ornith", required_ctx=8192)
 
         # Classify the domain of the query
         domain = "general"
@@ -2698,12 +2698,12 @@ class AgentOrchestrator:
             f"To verify:\n{hypothesis[:2000]}"
         )
         if status_callback:
-            status_callback("OpenCode writing Python Verification Script...", "info", "opencode", 42)
+            status_callback("Ornith writing Python Verification Script...", "info", "ornith", 42)
         test_response = self._call_model(coder_model, playground_prompt, max_tokens=4096, temperature=0.1)
         test_code = Sandbox.extract_code(test_response)
         
         if status_callback:
-            status_callback("Executing verification in Sandbox...", "info", "opencode", 45)
+            status_callback("Executing verification in Sandbox...", "info", "ornith", 45)
         success, output = self.sandbox.execute(test_code, language='python')
         
         # ── Router Linter Intercept for Verification/Playground Scripts ──
@@ -2711,8 +2711,8 @@ class AgentOrchestrator:
             is_syntax_error = any(e in output for e in ["SyntaxError", "ModuleNotFoundError", "NameError", "IndentationError", "TypeError", "AttributeError", "ValueError"])
             if is_syntax_error:
                 if status_callback:
-                    status_callback("⚠️🔧 Agent IDE: Surgical patching Sandbox syntax error...", "warning", "opencode", 48)
-                router_linter = self._get_model("opencode", required_ctx=8192)
+                    status_callback("⚠️🔧 Agent IDE: Surgical patching Sandbox syntax error...", "warning", "ornith", 48)
+                router_linter = self._get_model("vibethinker", required_ctx=8192)
 
                 # Step A: Try Agent IDE surgical patch first
                 patched = self._agent_ide_patch(test_code, output, router_linter, 1024)
@@ -2854,19 +2854,19 @@ class AgentOrchestrator:
         """Execute the actual 3D visualization generation (HTML + Plotly fallback)."""
         # Strip internal thinking to save massive token limits
         clean_plan = self._strip_thinking(compiled_plan)
-        # Strip all markdown code blocks to prevent opencode from trying to fix/debug them
+        # Strip all markdown code blocks to prevent ornith from trying to fix/debug them
         clean_plan = re.sub(r"```[a-zA-Z0-9_]*\n[\s\S]*?\n```", "", clean_plan)
         
         # Reasonable limit — keep enough physics context for the 3D generator
         if len(clean_plan) > 3000:
             clean_plan = clean_plan[:3000]
         
-        coder_llm = self._get_model("opencode", required_ctx=oc_ctx)
+        coder_llm = self._get_model("ornith", required_ctx=oc_ctx)
 
         # ── Strategy 1: HTML/JS Artifact (frontend iframe sandbox) ────────
         # Generate a self-contained HTML page with Plotly.js CDN that the frontend can render in an iframe.
         if status_callback:
-            status_callback("Generating HTML Artifact (Frontend Sandbox)...", "info", "opencode", 95)
+            status_callback("Generating HTML Artifact (Frontend Sandbox)...", "info", "ornith", 95)
         html_prompt = (
             "Write a COMPLETE, SELF-CONTAINED HTML page creating an interactive 3D simulation.\n"
             "RULES:\n"
@@ -2912,7 +2912,7 @@ class AgentOrchestrator:
 
         if not html_is_valid_document:
             if status_callback:
-                status_callback("HTML generation returned empty. Falling back to Python Plotly...", "warning", "opencode", 96)
+                status_callback("HTML generation returned empty. Falling back to Python Plotly...", "warning", "ornith", 96)
             html_extract = ""
 
         # Validate initially
@@ -2935,7 +2935,7 @@ class AgentOrchestrator:
                 if html_valid:
                     break
                 if status_callback:
-                    status_callback(f"Fixing HTML JS execution error (Round {attempt+1})...", "warning", "opencode", 96)
+                    status_callback(f"Fixing HTML JS execution error (Round {attempt+1})...", "warning", "ornith", 96)
                 
                 fix_p = (
                     f"Your previously generated HTML/JS code failed JavaScript execution verification.\n\n"
@@ -2979,7 +2979,7 @@ class AgentOrchestrator:
 
         # ── Strategy 2: Python Plotly (backend sandbox verified fallback) ──────────
         if status_callback:
-            status_callback("HTML Failed. Falling back to Python Plotly...", "warning", "opencode", 97)
+            status_callback("HTML Failed. Falling back to Python Plotly...", "warning", "ornith", 97)
         is_physics = any(kw in compiled_plan.lower() for kw in ['proton', 'electron', 'magnetic', 'electric', 'lorentz', 'ode', 'differential equation', 'cyclotron'])
         physics_rules = ""
         if is_physics:
@@ -3035,7 +3035,7 @@ class AgentOrchestrator:
         
         if has_python:
             if status_callback:
-                status_callback("Rendering 3D Visualization...", "info", "opencode", 98)
+                status_callback("Rendering 3D Visualization...", "info", "ornith", 98)
             viz_success, viz_output = self.sandbox.execute(viz_extract, language='python')
 
         def _strip_sandbox_prefix(text):
@@ -3068,7 +3068,7 @@ class AgentOrchestrator:
             if json_extracted:
                 break
             if status_callback:
-                status_callback(f"Fixing 3D syntax/runtime error (Round {attempt+1})...", "warning", "opencode", 99)
+                status_callback(f"Fixing 3D syntax/runtime error (Round {attempt+1})...", "warning", "ornith", 99)
             
             error_details = viz_output if viz_output else "No valid python code block was generated."
             if viz_success and not json_extracted:
@@ -3148,9 +3148,9 @@ class AgentOrchestrator:
         """Dedicated prediction pipeline with specialized ML prompts and data cleaning loops."""
         self._check_cancelled("prediction:draft_script")
         if status_callback:
-            status_callback("🔮 Prediction: Drafting ML regression script...", "info", "opencode", 20)
+            status_callback("🔮 Prediction: Drafting ML regression script...", "info", "ornith", 20)
 
-        coder_llm = self._get_model("opencode", required_ctx=oc_ctx)
+        coder_llm = self._get_model("ornith", required_ctx=oc_ctx)
         
         ml_system_prompt = (
             "You are an expert Python data scientist. Write production-grade ML scripts using pandas, "
@@ -3183,11 +3183,11 @@ class AgentOrchestrator:
             self._call_model(coder_llm, ml_prompt, gen_tokens, gen_temp, system_prompt=ml_system_prompt)
         ))
 
-        # If OpenCode failed to generate code, escalate to DeepSeek-R1
+        # If Ornith failed to generate code, escalate to DeepSeek-R1
         if not code or len(code.strip()) < 50:
             self._check_cancelled("prediction:escalation")
             if status_callback:
-                status_callback("🔮 OpenCode draft empty — escalating to DeepSeek-R1...", "warning", "deepseek_r1", 30)
+                status_callback("🔮 Ornith draft empty — escalating to DeepSeek-R1...", "warning", "deepseek_r1", 30)
             ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)
             code = Sandbox.extract_code(self._strip_thinking(
                 self._call_model(ds_llm, ml_prompt, gen_tokens, gen_temp, system_prompt=ml_system_prompt)
@@ -3201,13 +3201,13 @@ class AgentOrchestrator:
         for attempt in range(max_attempts):
             self._check_cancelled("prediction:execute")
             if status_callback:
-                status_callback(f"🔮 Executing prediction script (Attempt {attempt+1}/{max_attempts})...", "info", "opencode", 40 + attempt * 20)
+                status_callback(f"🔮 Executing prediction script (Attempt {attempt+1}/{max_attempts})...", "info", "ornith", 40 + attempt * 20)
             
             ok, output = self.sandbox.execute(code, language='python')
             
             if ok and "PREDICTIVE_METRICS:" in output:
                 if status_callback:
-                    status_callback("🔮 Prediction VERIFIED!", "success", "opencode", 100)
+                    status_callback("🔮 Prediction VERIFIED!", "success", "ornith", 100)
                 self.memory.save(prompt, code)
                 
                 # Extract the metrics JSON
@@ -3230,7 +3230,7 @@ class AgentOrchestrator:
             # treat as partial success — return whatever output we got
             if ok and output and len(output.strip()) > 20:
                 if status_callback:
-                    status_callback("🔮 Script ran but metrics format missing — returning best-effort result.", "warning", "opencode", 80)
+                    status_callback("🔮 Script ran but metrics format missing — returning best-effort result.", "warning", "ornith", 80)
                 result = f"## Prediction & Forecasting Analysis\n\n{output}\n\n```python\n{code}\n```\n"
                 viz = self._check_3d_gate(prompt, result, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
                 return f"{result}{viz}"
@@ -3238,7 +3238,7 @@ class AgentOrchestrator:
             # ── Data cleaning / error fixing loop ──
             self._check_cancelled("prediction:fix_error")
             if status_callback:
-                status_callback(f"🔮 Fixing data/script error (Round {attempt+1})...", "warning", "opencode", 50 + attempt * 15)
+                status_callback(f"🔮 Fixing data/script error (Round {attempt+1})...", "warning", "ornith", 50 + attempt * 15)
             
             error_details = output[:800] if output else "Script produced no output."
 
@@ -3647,7 +3647,7 @@ class AgentOrchestrator:
         )
         if is_3d_command:
             if status_callback:
-                status_callback("Generating 3D Visualization from last response...", "info", "opencode", 10)
+                status_callback("Generating 3D Visualization from last response...", "info", "ornith", 10)
             # Prefer the immediately-preceding assistant turn stored in-memory.
             # Fall back to the most recent memory DB entry, then a broad recall.
             last_context = getattr(self, "_last_assistant_turn", "") or ""
@@ -3667,7 +3667,7 @@ class AgentOrchestrator:
             if not last_context:
                 last_context = "No previous context found. Generate a generic 3D demo visualization."
             router_ctx = self._get_dynamic_context_ceiling("router")
-            oc_ctx = self._get_dynamic_context_ceiling("opencode")
+            oc_ctx = self._get_dynamic_context_ceiling("ornith")
             gen_tokens = 4096
             gen_temp = 0.1
             viz = self._generate_3d_now(last_context, router_ctx, oc_ctx, gen_tokens, gen_temp, status_callback)
@@ -3973,7 +3973,7 @@ class AgentOrchestrator:
         # Calculate dynamic ceilings for each model individually based on post-swap free VRAM & RAM
         router_ctx_cap = self._get_dynamic_context_ceiling("router")
         ds_ctx_cap = self._get_dynamic_context_ceiling("deepseek_r1")
-        oc_ctx_cap = self._get_dynamic_context_ceiling("opencode")
+        oc_ctx_cap = self._get_dynamic_context_ceiling("ornith")
         
         if self.context_length == 0:
             if getattr(self, 'kaggle_hotswap_mode', False):
@@ -4206,7 +4206,7 @@ class AgentOrchestrator:
             return files_dict
 
         if status_callback:
-            status_callback("🎨 Aesthetic Reflexion: Polishing UI design...", "info", "opencode", 78)
+            status_callback("🎨 Aesthetic Reflexion: Polishing UI design...", "info", "ornith", 78)
 
         # Build a compact snapshot of all files for the critique prompt
         snapshot_parts = []
@@ -4245,7 +4245,7 @@ class AgentOrchestrator:
 
         polish_dir = None
         try:
-            oc_llm = self._get_model("opencode", required_ctx=oc_ctx)
+            oc_llm = self._get_model("ornith", required_ctx=oc_ctx)
             polished_output = self._strip_thinking(
                 self._call_model(oc_llm, critique_prompt, gen_tokens, gen_temp, system_prompt=critique_sys)
             )
@@ -4258,18 +4258,18 @@ class AgentOrchestrator:
                 polish_ok, polish_log, polish_dir = self.sandbox.execute_workspace(polished_files)
                 if polish_ok:
                     if status_callback:
-                        status_callback("✨ Aesthetic Reflexion: Design polished successfully!", "success", "opencode", 82)
+                        status_callback("✨ Aesthetic Reflexion: Design polished successfully!", "success", "ornith", 82)
                     return polished_files
                 else:
                     # Polished version broke something — keep original
                     if status_callback:
-                        status_callback("Aesthetic Reflexion: Polish failed sandbox — keeping original.", "warning", "opencode", 82)
+                        status_callback("Aesthetic Reflexion: Polish failed sandbox — keeping original.", "warning", "ornith", 82)
             else:
                 if status_callback:
-                    status_callback("Aesthetic Reflexion: Model output incomplete — keeping original.", "warning", "opencode", 82)
+                    status_callback("Aesthetic Reflexion: Model output incomplete — keeping original.", "warning", "ornith", 82)
         except Exception as e:
             if status_callback:
-                status_callback(f"Aesthetic Reflexion skipped: {str(e)[:80]}", "warning", "opencode", 82)
+                status_callback(f"Aesthetic Reflexion skipped: {str(e)[:80]}", "warning", "ornith", 82)
         finally:
             if polish_dir:
                 shutil.rmtree(polish_dir, ignore_errors=True)
@@ -4340,7 +4340,7 @@ class AgentOrchestrator:
         """Three-stage chip design pipeline:
         Stage 1: Architecture Decomposition (DeepSeek-R1)
         Stage 2: HDL Generation + EDA Verification (reflexion loop)
-        Stage 3: Physical Layout + 3D Visualization (OpenCodeInterpreter)
+        Stage 3: Physical Layout + 3D Visualization (Ornith)
         """
         prompt_lower = prompt.lower()
         output_parts = []
@@ -4563,9 +4563,9 @@ class AgentOrchestrator:
         # STAGE 3: Physical Layout + 3D Visualization
         # ══════════════════════════════════════════════════════════════
         if status_callback:
-            status_callback("Stage 3: 3D Chip Visualization...", "info", "opencode", 80)
+            status_callback("Stage 3: 3D Chip Visualization...", "info", "ornith", 80)
 
-        coder_llm = self._get_model("opencode", required_ctx=oc_ctx)
+        coder_llm = self._get_model("ornith", required_ctx=oc_ctx)
         viz_ctx = arch_plan_clean[:1500]
         if not is_spice and design_code:
             viz_ctx += f"\n\nVerilog modules:\n{design_code[:800]}"
@@ -4613,7 +4613,7 @@ class AgentOrchestrator:
 
             if not html_valid and not bypass and html_error:
                 if status_callback:
-                    status_callback("Fixing 3D visualization...", "warning", "opencode", 88)
+                    status_callback("Fixing 3D visualization...", "warning", "ornith", 88)
                 fix_p = (
                     f"Your HTML has errors:\nError: {html_error[:500]}\n\n"
                     f"Code:\n{html_extract[:3000]}\n\n"
@@ -4991,11 +4991,11 @@ class AgentOrchestrator:
                 except Exception:
                     pass
 
-                # ── Phase 3: OpenCode — Write Code ───────────────────────────
+                # ── Phase 3: Ornith — Write Code ───────────────────────────
                 self._check_cancelled("code:write_code")
                 if status_callback:
-                    status_callback(f"OpenCode writing code (Attempt {rnd+1}/{max_rounds})...", "info", "opencode", 50 + rnd*10)
-                oc_llm = self._get_model("opencode", required_ctx=oc_ctx)
+                    status_callback(f"Ornith writing code (Attempt {rnd+1}/{max_rounds})...", "info", "ornith", 50 + rnd*10)
+                oc_llm = self._get_model("ornith", required_ctx=oc_ctx)
                 # Truncate compiled_plan to fit context
                 max_code_prompt_chars = (oc_ctx - gen_tokens - 200) * 3
                 plan_for_code = compiled_plan[:max(max_code_prompt_chars, 1500)] if len(compiled_plan) > max_code_prompt_chars else compiled_plan
@@ -5168,11 +5168,11 @@ class AgentOrchestrator:
                 # ── Phase 4.5: Agent IDE Surgical Patch → Full Rewrite Fallback ──
                 is_syntax_error = any(e in output for e in ["SyntaxError", "ModuleNotFoundError", "NameError", "IndentationError", "TypeError", "AttributeError", "ValueError", "ReferenceError", "Error:"])
                 if is_syntax_error:
-                    oc_linter = self._get_model("opencode", required_ctx=oc_ctx)
+                    oc_linter = self._get_model("vibethinker", required_ctx=oc_ctx)
 
                     # ── Step A: Try Agent IDE surgical patch first (fast, token-efficient) ──
                     if status_callback:
-                        status_callback(f"🔧 Agent IDE: Surgical patching {lang_name} error...", "warning", "opencode", 63 + rnd*10)
+                        status_callback(f"🔧 Agent IDE: Surgical patching {lang_name} error...", "warning", "ornith", 63 + rnd*10)
                     patched_code = self._agent_ide_patch(code, output, oc_linter, gen_tokens, lang=req_lang)
                     if patched_code and patched_code != code:
                         exec_patched = patched_code
@@ -5190,7 +5190,7 @@ class AgentOrchestrator:
                             output = patch_output
                             ok = True
                             if status_callback:
-                                status_callback("🔧 Agent IDE patch VERIFIED!", "success", "opencode", 68 + rnd*10)
+                                status_callback("🔧 Agent IDE patch VERIFIED!", "success", "ornith", 68 + rnd*10)
                             self.memory.save(prompt, code)
                             if rnd > 0 or reset > 0:
                                 self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
@@ -5199,7 +5199,7 @@ class AgentOrchestrator:
 
                     # ── Step B: Patch failed → Fall back to full rewrite linter ──
                     if status_callback:
-                        status_callback(f"OpenCode full rewrite for {lang_name} error...", "warning", "opencode", 65 + rnd*10)
+                        status_callback(f"Ornith full rewrite for {lang_name} error...", "warning", "ornith", 65 + rnd*10)
                     lint_p = (
                         f"You are a fast {lang_name} Syntax Linter.\n"
                         f"The code failed with this error:\n{output[:600]}\n\n"
@@ -5225,7 +5225,7 @@ class AgentOrchestrator:
                             output = linter_output
                             ok = True
                             if status_callback:
-                                status_callback("OpenCode successfully patched the code!", "success", "opencode", 70 + rnd*10)
+                                status_callback("Ornith successfully patched the code!", "success", "ornith", 70 + rnd*10)
                             self.memory.save(prompt, code)
                             if rnd > 0 or reset > 0:
                                 self.memory.save_mistake(prompt, initial_failed_code, initial_failed_error, code)
@@ -5269,9 +5269,9 @@ class AgentOrchestrator:
                             pass
                     search_str = f"Helper Web Context:\n{helper_search_context}\n\n" if helper_search_context else ""
 
-                    # OpenCode corrects the code first (already loaded from Phase 3 — no swap needed)
+                    # Ornith corrects the code first (already loaded from Phase 3 — no swap needed)
                     if status_callback:
-                        status_callback(f"OpenCode correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "opencode", 73 + rnd*10)
+                        status_callback(f"Ornith correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "ornith", 73 + rnd*10)
                     failed_code = code
                     failed_error = output
                     safe_code = code[:2000] if len(code) > 2000 else code
@@ -5313,19 +5313,19 @@ class AgentOrchestrator:
                         f"just fix the bug, ensure all imports are present, and make it fully functional."
                     )
 
-                    # Try OpenCode first (already loaded, no model swap needed)
-                    oc_fix = self._get_model("opencode", required_ctx=oc_ctx)
+                    # Try Ornith first (already loaded, no model swap needed)
+                    oc_fix = self._get_model("ornith", required_ctx=oc_ctx)
                     code = Sandbox.extract_code(self._strip_thinking(self._call_model(oc_fix, fix_p, gen_tokens, gen_temp, system_prompt=debug_sys)))
                     ok, output = self.sandbox.execute(code, language=req_lang)
                     if ok:
                         if status_callback:
-                            status_callback("OpenCode's correction VERIFIED!", "success", "opencode", 78 + rnd*10)
+                            status_callback("Ornith's correction VERIFIED!", "success", "ornith", 78 + rnd*10)
                         self.memory.save(prompt, code)
                         self.memory.save_mistake(prompt, failed_code, failed_error, code)
                         router_llm = None; ds_llm = None; oc_llm = None; coder_llm = None; critic_llm = None; model = None; gc.collect()
                         return self._synthesize_coding_response(prompt, compiled_plan, code, output, router_ctx, oc_ctx, ds_ctx, gen_tokens, gen_temp, status_callback, req_lang=req_lang)
 
-                    # Escalate to DeepSeek-R1 only if OpenCode's correction also failed
+                    # Escalate to DeepSeek-R1 only if Ornith's correction also failed
                     if status_callback:
                         status_callback(f"DeepSeek-R1 correcting code (Attempt {rnd+1}/{max_rounds})...", "warning", "deepseek_r1", 80 + rnd*10)
                     ds_llm = self._get_model("deepseek_r1", required_ctx=ds_ctx)

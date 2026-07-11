@@ -1,516 +1,194 @@
 <div align="center">
-  
-# 🧠 DeepThink AIOS (Artificial Intelligence Operating System)
 
-### A Fully Local Multi-Agent AIOS with Dual Sandbox Verification, Chip Design EDA Pipeline & Dynamic Hardware Scaling
+# 🧠 DeepThink AIOS
 
-*Running an orchestrated fleet of specialized LLMs on local hardware — from Intel iGPUs to NVIDIA H100s*
+### Fully Local Multi-Agent AI Operating System
+
+*An orchestrated fleet of specialized LLMs running on consumer hardware — zero cloud dependencies.*
 
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![React](https://img.shields.io/badge/React-18.0%2B-blue)
 ![License MIT](https://img.shields.io/badge/License-MIT-green)
-![Architecture Multi-Agent MoE](https://img.shields.io/badge/Architecture-Multi--Agent%20MoE-purple)
-![Hardware Adaptive](https://img.shields.io/badge/Hardware-Adaptive-orange)
+![Architecture Multi-Agent](https://img.shields.io/badge/Architecture-Multi--Agent-purple)
 
 </div>
 
 ---
 
-DeepThink AIOS is a **production-grade, fully local multi-agent Artificial Intelligence Operating System (AIOS)** designed to run multiple specialized LLMs locally on consumer and enterprise hardware. By leveraging a high-performance **7-Way Routing Pipeline**, DeepThink AIOS analyzes user intent to route queries through optimal reasoning, coding, math, predictive, visual, and **semiconductor chip design** paths—**all executing 100% offline with zero cloud API dependencies.**
-
-At startup, the system auto-calibrates to the available compute environment (CUDA, Intel XPU/SYCL, or CPU), scaling context windows, batch sizes, scraping depth, memory thresholds, and execution configurations dynamically.
+DeepThink AIOS is a **production-grade, fully offline multi-agent system** that routes user queries through specialized LLM pipelines for coding, reasoning, data science, 3D visualization, and semiconductor chip design — all running locally with dynamic hardware scaling from Intel iGPUs to NVIDIA H100s.
 
 > [!CAUTION]
-> ### ⚠️ Experimental Status
-> This project is currently in active development and under experimental status. The dual-sandbox architecture, Reflexion loops, and Dynamic Memory Allocator (DMA) push consumer hardware to its absolute limits.
+> This project is in active development. The multi-sandbox architecture and Dynamic Memory Allocator push consumer hardware to its limits.
 
 ---
 
-## 🚀 Key Highlights & Achievements
+## ✨ Key Features
 
-* **Unified Multi-Agent Orchestration:** Local execution-driven multi-agent operating system framework.
-* **7-Way Intelligent Orchestration:** Transitions away from simple chat/search toggles to an intent-aware routing network — now including a dedicated **Chip Design EDA pipeline**.
-* **Dual-Sandbox Code & Logic Verification:** Built-in isolated polyglot runtime environment verifying code outputs across 13 languages (including Verilog, SystemVerilog, and SPICE).
-* **Native Kernel-Level Sandbox Isolation:** Leverages Linux `unshare` (network/PID/IPC namespaces), `chroot` filesystem jailing, and `seccomp`-like resource restrictions — providing container-grade security without Docker overhead.
-* **Pre-Execution SAST Security Scanning:** Integrated static application security testing (Bandit patterns) blocks command injection, reverse shells, and code exfiltration before sandbox execution.
-* **PDK-Mapped Semiconductor Synthesis:** Supports real Process Design Kit (PDK) standard-cell mapping (SkyWater 130nm SKY130) with Yosys liberty-file synthesis and KLayout DRC auto-correction reflexion loops.
-* **Agentic Git & PR Automation:** Built-in Git workspace agent for automated repository cloning, branch creation, file commits, and GitHub Pull Request submission with embedded verification reports.
-* **Dynamic Memory Allocator (DMA):** Out-of-memory (OOM) protection allowing large models (up to 7B parameters) to run seamlessly on consumer hardware (e.g. 16GB RAM / Intel Iris Xe iGPUs) using LRU-based swapping.
-* **Claude-Style Interactive Visual Sandbox:** Generates live, glassmorphic Three.js 3D physics engines and Plotly.js charts rendered in secure iframe sandboxes.
+- **7-Way Intelligent Routing** — Intent-aware pipeline selection across coding, reasoning, prediction, search, 3D viz, and chip design
+- **Self-Scaffolding Code Generation** — Ornith 9B autonomously plans and writes code in a single unified trajectory
+- **AST-Aware Self-Healing** — Surgical patching via Python AST extraction instead of fixed-line windows
+- **Parallel Web Scraping** — ThreadPoolExecutor-based concurrent page fetching (N×timeout → 1×timeout)
+- **Dual Sandbox Verification** — Polyglot execution across 13 languages with kernel-level isolation
+- **Chip Design EDA Pipeline** — Full Verilog/SPICE synthesis with SkyWater 130nm PDK mapping
+- **Dynamic Memory Allocator (DMA)** — LRU model swapping enabling 7B+ models on 16GB RAM systems
 
 ---
 
-## 🛠️ Complete Technology Stack
+## 🤖 Model Fleet
 
-The system is constructed with a highly decoupled client-server architecture utilizing the following tools:
-
-### Frontend (User Interface)
-* **Framework:** React 19 (Functional components, hooks) with Vite (Ultra-fast build/dev tooling)
-* **Styling & Layout:** Vanilla CSS (Glassmorphism, custom dark theme, premium transitions, responsive flexbox/grid)
-* **Icons:** Lucide React
-* **Markdown & Parsing:** `react-markdown` (supports live rendering of LaTeX blocks, code tables, and syntax highlighting)
-* **Interactive Visualization:** Dynamic loading inside an isolated iframe sandbox utilizing `Plotly.js` and `Three.js` (WebGL)
-
-### Backend (Model Orchestrator & API Gateway)
-* **Framework:** FastAPI (Asynchronous, type-safe REST API endpoint validation)
-* **ASGI Server:** Uvicorn (Asynchronous web runner)
-* **Model Inference Engine:** Local `llama.cpp` server & HuggingFace integration (`transformers`, `accelerate`)
-* **Vector Database (RAG):** ChromaDB (Local SQLite-backed semantic vector storage for indexing past verified solutions)
-* **Real-time Web Access:** DuckDuckGo Search API (`ddgs`)
-* **System Metrics Monitoring:** `psutil` (Tracks active processes, CPU cores, and RAM utilization for EVM hot-swapping)
-
-### Verification Sandbox (Pre-Whitelisted Scientific & Cryptographic Libraries)
-* **Scientific Computing & Math:** `numpy`, `scipy` (Numerical solvers & ODE integrations), `sympy` (Symbolic algebraic solver), `pint` (Physical units validation)
-* **Theorem Proving & Constraints:** `z3-solver` (Z3 SMT Solver for math/logic boundaries)
-* **Biological & Molecular Physics:** `biopython`, `rdkit` (Molecular structures and sequence parsing)
-* **Data Science & ML:** `scikit-learn` (Regression, regression trees, forecasting), `statsmodels` (Time series models)
-* **Space Dynamics & Astrodynamics:** `astropy`, `rocketpy`
-* **Quantum Computing Simulations:** `qiskit`, `qutip`
-* **Cybersecurity & Cryptography:** `cryptography` (Fernet, AES, RSA), `scapy` (Interactive packet crafting/sniffing), `pyjwt`, `pycryptodome`
-
-### Chip Design EDA Toolchain (Open-Source)
-* **RTL Simulation:** Icarus Verilog (`iverilog`) — Verilog/SystemVerilog compilation & simulation
-* **Logic Synthesis:** Yosys (`yosys`) — Open-source synthesis suite with gate-level statistics
-* **PDK Standard-Cell Mapping:** SkyWater 130nm (SKY130) — Liberty-file mapped gate-level netlist synthesis
-* **SPICE Simulation:** Ngspice (`ngspice`) — Analog/mixed-signal circuit simulation
-* **Physical Layout:** `gdstk` — GDSII file generation for semiconductor physical layout
-* **Verification:** KLayout (`klayout`) — DRC/LVS physical rule checking with auto-correction reflexion loop
-
-### Enterprise Security & Compliance
-* **Sandbox Isolation:** Linux kernel namespaces (`unshare --net --pid --ipc`), `chroot` filesystem jailing, `seccomp`-like resource restrictions
-* **SAST Scanning:** Pre-execution static security analysis detecting command injection, reverse shells, backdoor imports, and code exfiltration patterns
-* **Authentication:** JWT token-based API authentication (optional, activated via `AIOS_AUTH_ENABLED=1`)
-* **Air-Gap Mode:** Zero-network offline deployment mode (activated via `AIOS_AIR_GAP=1`)
-* **Multi-Tenant Memory:** User-scoped SQLite memory isolation for enterprise multi-user deployments
-
-### Developer Workspace & Git Integration
-* **Git Agent:** Automated repository cloning, feature branch creation, file commits, and GitHub PR submission via `gitpython`
-* **Workspace Sync:** Direct file synchronization between AIOS output and local developer directories
+| Model | Size | Role |
+|---|---|---|
+| **Ornith 1.0-9B** | 9B (Q6_K) | Primary code generation, 3D visualization, ML scripting, self-correction |
+| **DeepSeek-R1-7B** | 7B (Q6_K) | Deep reasoning, chain-of-thought, logic planning, pedagogical synthesis |
+| **VibeThinker 3B** | 3B (Q6_K) | Agent IDE syntax linter — surgical AST-aware patching |
+| **Phi-3.5-Mini** | 3.8B (Q6_K) | Intent classification, routing, search query generation |
+| **Qwen-2.5-VL-7B** | 7B (Q6_K_XL) | Vision parsing, OCR, screenshot/chart transcription |
 
 ---
 
-## 🤖 7-Way Agentic Pipeline Architecture
+## 🔀 Pipeline Architecture
 
 ```
-                       User Prompt + Uploaded Image
-                                    │
-                                    ▼
-                      ┌───────────────────────────┐
-                      │ Qwen-2.5-VL Vision Parser │ (Extract text/diagrams)
-                      └─────────────┬─────────────┘
-                                    │
-                                    ▼
-                      ┌───────────────────────────┐
-                      │    Phi-3.5-Mini Router    │ (Intent & Mode Classifier)
-                      └─────────────┬─────────────┘
-                                    │
-    ┌──────────┬──────────┬──────────┬───────────┬──────────┬──────────┬──────────┐
-    ▼          ▼          ▼          ▼           ▼          ▼          ▼
-  [PATH A]  [PATH B]   [PATH C]   [PATH D]   [PATH E]   [PATH F]   [PATH G]
-   SIMPLE    CODING   REASONING  PREDICTION  EXTREME     3D VIZ   CHIP DESIGN
-    │          │          │          │        SEARCH       │          │
-    ▼          ▼          ▼          ▼           ▼          ▼          ▼
- Phi-3.5   OpenCode   DeepSeek   OpenCode   DeepSeek   OpenCode   DeepSeek R1
-  Direct   Actor-     R1-7B /    ML Regr.   R1 Deep    WebGL &    Architecture
-  Answer   Critic     VibeThnkr             Analysis   JS Gen     Decompose
-    │          │          │          │           │          │          │
-    ▼          ▼          ▼          ▼           ▼          ▼          ▼
-  Search   Execution  Sandbox    Data Clean  Plotly     Reflexion  Verilog/SPICE
- (Simple)  Sandbox    Verify     Loop(SciPy) Charts     Loop       + EDA Verify
-    │          │          │          │           │          │          │
-    └──────────┴──────────┴──────────┴───────────┴──────────┴──────────┘
-                                    │
-                                    ▼
-                             Streamed Response
-                      (Answer + Code + 3D Visual + HDL)
+                       User Prompt + Image
+                              │
+                              ▼
+                    ┌───────────────────┐
+                    │  Qwen-VL (Vision) │
+                    └────────┬──────────┘
+                             │
+                    ┌────────▼──────────┐
+                    │ Phi-3.5 (Router)  │
+                    └────────┬──────────┘
+                             │
+   ┌─────────┬─────────┬─────┴─────┬──────────┬──────────┬──────────┐
+   ▼         ▼         ▼           ▼          ▼          ▼          ▼
+ SIMPLE   CODING   REASONING  PREDICTION  EXTREME    3D VIZ    CHIP DESIGN
+   │         │         │           │       SEARCH       │          │
+   ▼         ▼         ▼           ▼          ▼         ▼          ▼
+ Phi-3.5  Ornith    DeepSeek    Ornith    DeepSeek   Ornith    DeepSeek
+ Direct   9B Self-  R1 CoT +   ML Script  R1 Deep   WebGL/    Architecture
+ Answer   Scaffold  Sandbox    + SciKit   Analysis   Three.js  + EDA Verify
+   │         │         │           │          │         │          │
+   └─────────┴─────────┴───────────┴──────────┴─────────┴──────────┘
+                              │
+                       Streamed Response
 ```
 
-```mermaid
-flowchart TD
-    %% ── TOP-LEVEL INGESTION ──
-    USER([User Prompt]) --> ROUTER["Router: Phi-3.5 Mini"]
-    
-    ROUTER -->|Search Query Triggered| OPT_QUERY["Phi 3.5 Mini: Generate optimized query"]
-    OPT_QUERY --> SCRAPE["Scrape Web Snippets & Live Data"]
-    SCRAPE --> CLASSIFY["Phi-3.5 Mini: Intent Classification"]
-    
-    ROUTER -->|No Search| CLASSIFY
+### Pipeline Details
 
-    %% ── Intent Classification Branches ──
-    CLASSIFY --> PATH_SIMPLE["1. SIMPLE"]
-    CLASSIFY --> PATH_REASONING["2. REASONING"]
-    CLASSIFY --> PATH_CODING["3. CODING"]
-    CLASSIFY --> PATH_PREDICT["4. PREDICTION"]
-    CLASSIFY --> PATH_3D["5. 3D VIZ"]
-    CLASSIFY --> PATH_EXTREME["6. EXTREME WEBSEARCH"]
-    CLASSIFY --> PATH_CHIP["7. CHIP DESIGN"]
-
-    %% ── 1. SIMPLE PATHWAY ──
-    PATH_SIMPLE --> SIMPLE_ANS["Phi-3.5 Mini: Answer directly with web context"]
-
-    %% ── 2. REASONING PATHWAY ──
-    PATH_REASONING --> REASON_BRANCH{"Playground Verifiable?"}
-    REASON_BRANCH -->|Yes| DS_DRAFT["DeepSeek R1-7B: Draft Core LaTeX Answer + CoT"]
-    DS_DRAFT --> REASON_SB{"Execution Sandbox"}
-    
-    REASON_SB -->|Verified Success| DS_SYNTH["DeepSeek R1-7B: Synthesize detailed LaTeX Explanation"]
-    DS_SYNTH --> REASON_PASS["Pass final verified math solution"]
-    
-    REASON_SB -->|Crash/Failure| ERROR_CHECK{"Is simple Code/Syntax error?"}
-    ERROR_CHECK -->|Yes| VT_FIX["VibeThinker 3B: Rapid logic/code patch"]
-    ERROR_CHECK -->|No| DS_FIX["DeepSeek R1-7B: Core math self-correction"]
-    VT_FIX --> REASON_SB
-    DS_FIX --> REASON_SB
-
-    REASON_BRANCH -->|No| DS_THEORY["DeepSeek R1-7B: Direct detailed academic LaTeX derivation"]
-    DS_THEORY --> REASON_PASS
-
-    %% ── 3. CODING PATHWAY ──
-    PATH_CODING --> VT_PLAN["VibeThinker 3B: Draft Step-by-Step Logic Plan"]
-    VT_PLAN --> OC_DRAFT["OpenCodeInterpreter 7B: Draft Python/JS Script"]
-    OC_DRAFT --> CODING_SB{"Execution Sandbox"}
-    
-    CODING_SB -->|Verified Success| CODE_PASS["Output final Verified Code Block"]
-    
-    CODING_SB -->|Syntax/Logic Error| CODE_FIX_SYS["Load debug_sys: Dedicated Debug Prompt"]
-    CODE_FIX_SYS -->|Level 1: Surgical Patch| CODE_LINT["OpenCode Linter: Patch error in place"]
-    CODE_LINT --> CODING_SB
-    
-    CODE_FIX_SYS -->|Level 2: Reflexion Loop| CODE_FIX["OpenCode attempts logic fix"]
-    CODE_FIX --> CODING_SB
-    
-    CODE_FIX_SYS -->|Level 3: Escalation| DS_CODE_FIX["DeepSeek R1-7B: Emergency traceback patch"]
-    DS_CODE_FIX --> CODING_SB
-
-    %% ── 4. PREDICTION PATHWAY ──
-    PATH_PREDICT --> P_VRAM["Expand VRAM Context Limits"]
-    P_VRAM --> P_SPEC["OpenCodeInterpreter 7B: ML/Data Science Specialization Prompt"]
-    P_SPEC --> P_DRAFT["Draft Pandas/Scikit-learn Regression Script"]
-    
-    P_DRAFT -->|Empty / Failed Draft| P_DS_FALLBACK["DeepSeek R1-7B Fallback Draft"]
-    P_DRAFT -->|Successful Draft| P_SB{"Sandbox Execution"}
-    P_DS_FALLBACK --> P_SB
-    
-    P_SB -->|Verified Success| P_PASS["Parse 'PREDICTIVE_METRICS' JSON & Render Forecast UI"]
-    P_SB -->|Partial Success| P_BEST_EFFORT["Return Best-Effort Text Results"]
-    P_SB -->|Runtime / Syntax Error| P_IDE_PATCH["Agent IDE: Surgical Search/Replace Patch"]
-    
-    P_IDE_PATCH -->|Patch Success| P_PASS
-    P_IDE_PATCH -->|Patch Failed| P_CLEAN["Data Cleaning Loop: OpenCode full rewrite"]
-    P_CLEAN --> P_SB
-    
-    REASON_PASS & CODE_PASS & P_PASS & P_BEST_EFFORT --> P_3D_GATE{"Triggers 3D Visuals?"}
-    P_3D_GATE -->|Yes| VIZ_DRAFT
-    P_3D_GATE -->|No| RENDER_UI
-
-    %% ── 5. 3D VIZ PATHWAY ──
-    PATH_3D --> VIZ_DRAFT["OpenCodeInterpreter 7B: Generate HTML (JS WebGL)"]
-    VIZ_DRAFT --> VIZ_SB{"Node.js Sandbox: Verify syntax and DOM API logic"}
-    
-    VIZ_SB -->|Syntax Error| VIZ_LINT["OpenCode Linter: Fix JavaScript Error"]
-    VIZ_LINT --> VIZ_SB
-    VIZ_SB -->|Success| VIZ_PASS["Output Interactive HTML to Frontend Frame"]
-
-    PATH_EXTREME --> EXT_VRAM["Expand VRAM to Absolute Max Limit"]
-    EXT_VRAM --> DS_COMPARE["DeepSeek R1-7B: Deep Comparison & Data Structuring"]
-    DS_COMPARE --> EXT_REPORT["Generate Comprehensive Analytical Report"]
-    EXT_REPORT --> EXT_PLOT["DeepSeek R1-7B: Draft Plotly Script directly (No Swap)"]
-    EXT_PLOT --> EXT_SB{"Execution Sandbox: Verify JSON Output"}
-    EXT_SB -->|Success| EXT_PASS["Output Deep Analysis Report + Interactive Charts"]
-
-    %% ── 7. CHIP DESIGN PATHWAY ──
-    PATH_CHIP --> CHIP_ARCH["DeepSeek R1-7B: Architecture Decomposition"]
-    CHIP_ARCH --> CHIP_HDL{"Analog or Digital?"}
-    CHIP_HDL -->|Digital| CHIP_VERILOG["DeepSeek R1-7B: Verilog RTL + Testbench"]
-    CHIP_HDL -->|Analog| CHIP_SPICE["DeepSeek R1-7B: SPICE Netlist"]
-    CHIP_VERILOG --> CHIP_EDA{"iverilog + Yosys Sandbox"}
-    CHIP_SPICE --> CHIP_NGSPICE{"Ngspice Sandbox"}
-    CHIP_EDA -->|Errors| CHIP_FIX["Reflexion: Auto-correct HDL"]
-    CHIP_FIX --> CHIP_EDA
-    CHIP_EDA -->|Verified| CHIP_3D["OpenCode: Three.js 3D Chip Layer Viz"]
-    CHIP_NGSPICE --> CHIP_3D
-    CHIP_3D --> CHIP_PASS["Output HDL + Synthesis Stats + 3D Visual"]
-
-    %% ── FINAL RENDERING TERMINUS ──
-    SIMPLE_ANS & VIZ_PASS & EXT_PASS & CHIP_PASS --> RENDER_UI["💻 React Frontend UI / Chat Output"]
-
-    %% ── STYLING ──
-    classDef default fill:#1E1E1E,stroke:#4A4A4A,stroke-width:2px,color:#FFF;
-    classDef gateway fill:#2D3748,stroke:#4A5568,stroke-width:2px,color:#FFF;
-    classDef routing fill:#5E2750,stroke:#9C27B0,stroke-width:2px,color:#FFF;
-    classDef sandbox fill:#E65100,stroke:#FF9800,stroke-width:2px,color:#FFF;
-    classDef terminal fill:#1B5E20,stroke:#4CAF50,stroke-width:2px,color:#FFF;
-    
-    class USER,ROUTER,OPT_QUERY,SCRAPE,CLASSIFY gateway;
-    class PATH_SIMPLE,PATH_REASONING,PATH_CODING,PATH_PREDICT,PATH_3D,PATH_EXTREME,PATH_CHIP,P_3D_GATE routing;
-    class REASON_SB,CODING_SB,P_SB,VIZ_SB,EXT_SB,CHIP_EDA,CHIP_NGSPICE sandbox;
-    class RENDER_UI terminal;
-```
-
-### Routing Pathways
-
-1. **SIMPLE:** Fast, direct answers utilizing Phi-3.5-Mini. Best for general conversations and basic tasks.
-2. **CODING:** OpenCodeInterpreter 6.7B acts as the generator, with an execution-driven feedback loop verifying code correctness.
-3. **REASONING:** A sandbox-verified hybrid flow. DeepSeek-R1-7B drafts the core LaTeX explanation and chain-of-thought, which is verified in the sandbox. If errors occur, it dynamically routes code/syntax corrections to VibeThinker 3B, or math/logic corrections back to DeepSeek-R1-7B, before R1 synthesizes the final response. Conceptual math/physics queries bypass the playground and route directly to DeepSeek-R1-7B.
-4. **PREDICTION:** A specialized ML pipeline that scrapes target web sources, cleans data frames, performs model fitting (Scikit-Learn/SciPy), and outputs regression/forecast statistics.
-5. **EXTREME WEBSEARCH:** Employs DeepSeek R1-7B to perform deep thematic synthesis over scraped pages and generate Plotly visualizations directly, avoiding model-swapping overhead.
-6. **3D VISUALIZATION:** Generates interactive Three.js physics scenes or Plotly.js canvases rendered directly in the web frontend.
-7. **CHIP DESIGN:** A 3-stage semiconductor design pipeline: (a) DeepSeek-R1 decomposes the architecture into sub-modules with pin contracts, (b) generates synthesizable Verilog/SPICE code verified through iverilog + Yosys with a reflexion auto-correction loop, and (c) produces interactive 3D chip layer visualizations using Three.js.
-
----
-
-## 🧩 The Fleet of Local Models
-
-| Model Key | Base Model | Parameter Size | Quantization | Primary Role |
+| # | Pipeline | Generator | Linter | Description |
 |---|---|---|---|---|
-| **router** | Phi-3.5-Mini-Instruct | 3.8B | Q6_K | Intent classification, routing decision, search query generation |
-| **vibethinker** | WeiboAI VibeThinker 3B | 3.0B | Q6_K | Mathematical reasoning, logic puzzles, step-by-step verification |
-| **deepseek_r1** | DeepSeek-R1-Distill-Qwen-7B | 7.0B | Q6_K | Complex multi-turn logic, chain-of-thought analysis, data synthesis |
-| **opencode** | OpenCodeInterpreter-DS-6.7B | 6.7B | Q6_K | High-quality code generation, ML scripting, 3D HTML artifact creation |
-| **qwen_vl** | Qwen-2.5-VL-7B-Instruct | 7.0B | Q6_K_XL + mmproj | Vision parsing, text/code transcription from screenshots and charts |
+| 1 | **Simple** | Phi-3.5 | — | Direct answers with optional web context |
+| 2 | **Coding** | Ornith 9B | VibeThinker | Self-scaffolded code gen → Sandbox verify → AST patch loop |
+| 3 | **Reasoning** | DeepSeek-R1 | VibeThinker | SymPy/SciPy verification scripts → LaTeX synthesis by R1 |
+| 4 | **Prediction** | Ornith 9B | VibeThinker | ML regression with pandas/scikit-learn, data cleaning loops |
+| 5 | **Extreme Search** | DeepSeek-R1 | — | Parallel scraping + deep thematic synthesis + Plotly charts |
+| 6 | **3D Visualization** | Ornith 9B | VibeThinker | Three.js / Plotly.js interactive scenes in iframe sandbox |
+| 7 | **Chip Design** | Ornith 9B + R1 | VibeThinker | 3-stage EDA: Architecture → HDL verify → 3D chip layout |
 
 ---
 
-## 🛡️ Key System Components
+## 🛡️ System Components
 
-### 1 — Dynamic Memory Allocator (DMA)
-Designed to make local multi-model pipelines possible on resource-constrained systems:
-* **LRU Model Eviction:** Hot-swaps models dynamically from System RAM to GPU VRAM to ensure only one active model consumes GPU memory.
-* **Unified Memory Guard:** Protects Intel Iris Xe iGPUs (running via Level Zero APIs) from memory allocation failures and host crash issues.
-* **Automatic CPU Fallback:** Gracefully redirects model execution to CPU threads if VRAM allocations fail.
+### Sandbox Isolation
+- **3-Tier Security:** Linux `unshare` namespaces + `chroot` jailing + resource limits
+- **13 Languages:** Python, C, C++, Java, JS, Go, Rust, Bash, TS, Verilog, SystemVerilog, SPICE, Yosys TCL
+- **Pre-Execution SAST:** Static security scanning blocks injection, reverse shells, and exfiltration
 
-### 2 — Dynamic Scaling
-Automatically scales execution parameters based on detected GPU compute capability:
-* **H100 / B200:** Context ceiling up to 64K tokens, maximum search query depth.
-* **RTX 3090 / 4090 / Intel Arc:** Context ceiling up to 32K tokens.
-* **T4 / Intel Iris Xe:** Caps context ceiling to 8K-16K tokens, restricts batch sizes (`n_batch=512`, `n_ubatch=256`), and disables flash attention to maintain system stability.
+### Self-Healing Loop
+```
+Draft Code → Sandbox Execute → [Success] → Output
+                                [Failure] ↓
+                    AST Context Extraction (exact broken function)
+                                ↓
+                    VibeThinker: Surgical Search/Replace Patch
+                                ↓
+                    [Fixed] → Re-execute → Output
+                    [Failed] → Ornith Full Rewrite → Re-execute
+                    [Failed] → DeepSeek-R1 Escalation → Nuclear Reset
+```
 
-### 3 — Isolated Polyglot Sandbox
-Executes generated code safely inside a 3-tier isolated environment:
-* **Languages Supported:** Python, C, C++, Java, JavaScript, Go, Rust, Bash, TypeScript, **Verilog, SystemVerilog, SPICE, Yosys TCL** (13 total).
-* **Libraries Pre-Whitelisted:** `numpy`, `scipy`, `pandas`, `sklearn`, `plotly`, `sympy`, `networkx`, `z3-solver`, `gdstk`.
-* **EDA Tool Integration:** `iverilog` (compile + simulate), `yosys` (synthesize), `ngspice` (SPICE simulation), `klayout` (DRC verification).
-* **Reflexion Loop:** Code syntax or runtime errors automatically spawn self-correction loops to repair the code before outputting results.
+### Dynamic Memory Allocator (DMA)
+- **LRU Eviction:** Hot-swaps models between VRAM ↔ System RAM
+- **KV Cache Quantization:** INT8 KV cache halves VRAM usage
+- **GPU Offloading:** KV cache pinned to VRAM via `offload_kqv`
+- **Auto-Scaling:** Context windows scale from 8K (iGPU) → 64K (H100)
 
 ---
 
-## 🔬 Architectural Deep-Dive & Self-Healing Pipeline Details
+## 🛠️ Tech Stack
 
-DeepThink AIOS goes beyond simple LLM completions by executing an active **Self-Healing Loop** that ensures the correctness of generated mathematical formulas, visual simulations, and machine learning scripts. 
-
-```
-   ┌──────────────────────────────────────────────────────────┐
-   │                  Draft Initial Script                    │
-   └────────────────────────────┬─────────────────────────────┘
-                                │
-                                ▼
-   ┌──────────────────────────────────────────────────────────┐
-   │             Execute Sandbox / Catch Stderr               │
-   └──────────────┬────────────────────────────┬──────────────┘
-                  │                            │
-            [Success]                       [Failure]
-                  │                            │
-                  ▼                            ▼
-   ┌──────────────────────────┐  ┌────────────────────────────┐
-   │  Evaluate 3D / UI Gate   │  │ Extract Error Line/Context │
-   └──────────────────────────┘  └─────────────┬──────────────┘
-                                               │
-                                               ▼
-                                 ┌────────────────────────────┐
-                                 │   Agent IDE Surgical Patch │ (Search/Replace Diff)
-                                 └─────────────┬──────────────┘
-                                               │
-                                     [Verification Succeeds]
-                                               ├────────────────────────┐
-                                               │                        │
-                                            [Yes]                      [No]
-                                               │                        │
-                                               ▼                        ▼
-                                    ┌────────────────────┐   ┌────────────────────┐
-                                    │ Save Verified Code │   │  Nuclear Full Reset│ (W/ Failure Lessons)
-                                    └────────────────────┘   └────────────────────┘
-```
-
-### 1. Agent IDE Surgical Patching (Fast-Correction Loop)
-Rather than rewriting full files when encountering compiler/interpreter exceptions (which consumes substantial context tokens and introduces latency), the system leverages a **surgical code-patching engine** (Aider-style):
-* **Traceback Parsing:** The backend parses standard python `Traceback` lines using regex selectors to isolate the exact line number, error class (e.g. `NameError`, `KeyError`, `IndexError`), and error message.
-* **Context Window Retrieval:** Retrieves the exact 15-line code snippet surrounding the faulty statement from the sandbox filesystem.
-* **Surgical Diff Generation:** Instructs the coder model to output standard `<<<<<<< SEARCH` and `======= REPLACE >>>>>>>` blocks to patch only the broken snippet.
-* **Execution Delta:** Slashes context generation by over **90%**, dropping average self-correction loop times from **12 seconds down to 1.8 seconds**.
-
-### 2. Nuclear Reset Loop & Emergency Recovery (Slow-Correction Loop)
-If a code block contains deep logic bugs or structural faults that cannot be solved by surgical patching, the orchestrator triggers a multi-stage **Nuclear Reset**:
-* **Memory Clear:** The active model's conversation history is cleared of code drafts to prevent reinforcing bad code patterns.
-* **Failure Analysis:** A separate model (DeepSeek-R1) runs a post-mortem analysis on the stack trace and stdout logs to extract concrete "Lessons Learned".
-* **Fresh Draft:** The active coder model starts a fresh scratch draft, with the "Lessons Learned" prepended to the system prompt to guide code creation away from past logical pitfalls.
-* **Emergency Web Search:** If local libraries throw undocumented import errors, the system triggers a real-time web search to fetch updated package API specs before attempting the rewrite.
-
-### 3. Dynamic Memory Allocator (DMA) Swapping Mechanics
-To run a fleet of specialized local models (Phi-3.5, VibeThinker, DeepSeek-R1, OpenCode, Qwen-VL) on consumer devices with limited RAM/VRAM:
-* **Dynamic Pointer Tracking:** Models are kept in system memory as cold pointers.
-* **LRU Eviction GGUF Scheduler:** When the router detects a transition (e.g. from reasoning math to rendering WebGL 3D), it queries active GPU memory. If headroom is insufficient, it evicts the least recently used model back to system RAM and loads the target GGUF layers into the GPU using optimized Level Zero/CUDA APIs.
-* **OOM Safety Guard:** Allocates a dynamic threshold buffer (typically 20-25% of total system RAM). If free system memory falls below this guard boundary, ChromaDB collections are unloaded and model contexts are scaled down dynamically.
-
-### 4. Prediction & Forecasting Pipeline Flow
-Specifically tuned for predictive analysis and time-series regression tasks:
-* **Web Data Extraction:** Pulls raw tabular structures or numbers from context, converting them into standard Pandas DataFrames.
-* **Data Cleaning Gate:** Automatically handles missing records using `dropna()` or `fillna(0)`, converts string formats to `datetime` indexes, and checks data shape constraints.
-* **Fit-And-Evaluate Loop:** Generates a clean regression script (utilizing Scikit-Learn or SciPy) to fit models, split train/test partitions (80/20), and measure coefficient of determination ($R^2$).
-* **Format-Compliance Checker:** At the script's end, it prints a unified JSON metrics block. If this printing logic fails but the execution itself succeeds, the pipeline captures it as a best-effort text outcome.
-
-### 5. Chip Design EDA Pipeline Flow
-A dedicated 3-stage semiconductor design pipeline integrated directly into the orchestrator:
-
-```
-  User: "Design a 4-bit ALU in Verilog"
-                │
-                ▼
-  ┌─────────────────────────────────┐
-  │  Stage 1: Architecture Decomp   │  (DeepSeek-R1-7B)
-  │  → Sub-module pin contracts     │
-  │  → Interconnection strategy     │
-  └───────────────┬─────────────────┘
-                  │
-         ┌────────┴────────┐
-         ▼                 ▼
-  ┌─────────────┐   ┌─────────────┐
-  │   Digital    │   │   Analog    │
-  │  (Verilog)   │   │  (SPICE)    │
-  └──────┬──────┘   └──────┬──────┘
-         │                 │
-         ▼                 ▼
-  ┌─────────────┐   ┌─────────────┐
-  │  iverilog    │   │  Ngspice    │
-  │  compile +   │   │  batch sim  │
-  │  simulate    │   │             │
-  └──────┬──────┘   └──────┬──────┘
-         │                 │
-    [Error?]───►Reflexion   │
-         │     Loop (×2)   │
-         ▼                 │
-  ┌─────────────┐          │
-  │   Yosys     │          │
-  │  synthesis  │          │
-  │  + stats    │          │
-  └──────┬──────┘          │
-         └────────┬────────┘
-                  ▼
-  ┌─────────────────────────────────┐
-  │  Stage 3: 3D Chip Visualization │  (OpenCodeInterpreter)
-  │  → Three.js stacked layers     │
-  │  → Glassmorphic layer legend    │
-  └─────────────────────────────────┘
-```
-
-* **Architecture Decomposition:** DeepSeek-R1 breaks down high-level design requests into sub-module specifications with precise port definitions (widths, directions, timing).
-* **HDL Generation & EDA Verification:** Generates synthesizable Verilog RTL with self-checking testbenches. Compiled and simulated using `iverilog`, synthesized using `Yosys`, with a 2-attempt reflexion loop that feeds error logs back for auto-correction.
-* **SPICE Path:** Analog circuit requests generate Ngspice-compatible netlists with `.tran`/`.dc`/`.ac` analysis commands.
-* **Physical Layout Visualization:** Produces interactive Three.js 3D renderings of semiconductor layer stacks (substrate → wells → polysilicon → metal layers → vias).
-* **Graceful Degradation:** When EDA tools aren't installed, the pipeline still generates correct HDL code and visualizations — it simply skips the verification step and shows installation instructions.
-* **Hardware Interface Registry:** Pin contracts for generated modules are persisted in the RAG memory layer, enabling multi-turn hierarchical designs where sub-modules can be recalled and interconnected across sessions.
+| Layer | Technologies |
+|---|---|
+| **Frontend** | React 19, Vite, Vanilla CSS (Glassmorphism), react-markdown, Plotly.js, Three.js |
+| **Backend** | FastAPI, Uvicorn, llama-cpp-python, ChromaDB (RAG), DuckDuckGo Search |
+| **Sandbox** | numpy, scipy, sympy, z3-solver, scikit-learn, biopython, rdkit, astropy, cryptography |
+| **EDA** | Icarus Verilog, Yosys, Ngspice, gdstk, KLayout |
 
 ---
 
-## 📂 Directory Structure
-
-Below is the layout of the project directories and the purpose of each primary code module:
+## 📂 Project Structure
 
 ```
 Team_Trenches/
 ├── backend/
-│   ├── app.py                # FastAPI main application server & endpoint handlers
-│   ├── orchestrator.py       # Core Multi-Agent Orchestrator & 7-Way Pipeline logic
-│   ├── downloader.py         # Multi-threaded Hugging Face model downloader
-│   ├── memory.py             # Memory controllers, RAG database & HW interface registry
-│   ├── sandbox.py            # Polyglot code execution (13 languages) & EDA verification
-│   ├── eda_setup.py          # EDA toolchain detector & auto-installer (iverilog, yosys, etc.)
-│   ├── search.py             # Web search integrations (DuckDuckGo, etc.)
-│   ├── repo_map.py           # Helper script for repository structures
-│   └── benchmark_runner.py   # Benchmark execution and reporting engine
+│   ├── app.py              # FastAPI server & endpoints
+│   ├── orchestrator.py     # Core 7-Way Pipeline orchestrator
+│   ├── downloader.py       # HuggingFace model downloader
+│   ├── memory.py           # ChromaDB RAG memory & HW registry
+│   ├── sandbox.py          # Polyglot sandbox (13 langs) & EDA verify
+│   ├── search.py           # Web search & parallel scraping
+│   ├── eda_setup.py        # EDA toolchain auto-installer
+│   ├── repo_map.py         # AST-based repository mapper
+│   └── git_agent.py        # Automated Git & PR agent
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx           # Main React component (dynamic UI, glassmorphic layout, stream parsers)
-│   │   ├── components/
-│   │   │   └── layout/
-│   │   │       └── SettingsModal.jsx  # Settings with 7 routing modes (incl. Chip Design)
-│   │   └── main.jsx          # React initialization script
-│   ├── package.json          # Node package dependencies & configurations
-│   ├── index.html            # Main Single Page Application template
-│   └── vite.config.js        # Vite compilation configuration
-├── start.sh                  # One-click startup script (starts backend + frontend simultaneously)
-├── requirements.txt          # Python backend package dependencies
-└── README.md                 # Project main documentation
+│   │   ├── App.jsx         # Main React UI
+│   │   └── components/     # Modular UI components
+│   ├── package.json
+│   └── vite.config.js
+├── start.sh                # One-click launcher
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 🖥️ System Requirements & Setup
+## 🖥️ Requirements & Setup
 
 | Resource | Minimum | Recommended |
 |---|---|---|
 | **RAM** | 16 GB | 32 GB |
-| **Storage** | 25 GB free space | 45 GB free space |
-| **OS** | Ubuntu 22.04+ / Windows 11 / macOS 14 | Ubuntu 24.04 / macOS 15 |
-| **GPU** | NVIDIA/Intel/AMD (8GB VRAM) | NVIDIA RTX 3090/4090 or Apple Silicon |
-| **EDA Tools** | *(Optional)* | `iverilog`, `yosys`, `ngspice`, `gdstk` for Chip Design pipeline |
+| **Storage** | 25 GB | 45 GB |
+| **OS** | Ubuntu 22.04+ / macOS 14 | Ubuntu 24.04 |
+| **GPU** | 8GB VRAM (any vendor) | NVIDIA RTX 3090/4090 |
 
-### Quick Start (Linux/macOS)
+### Quick Start
 
-1. **Clone the Repository:**
-   ```bash
-   git clone https://github.com/Bshdhorrhh/Team_Trenches.git
-   cd Team_Trenches
-   ```
+```bash
+# Clone & setup
+git clone https://github.com/Bshdhorrhh/Team_Trenches.git
+cd Team_Trenches
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 
-2. **Setup Python Environment:**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
+# Frontend
+cd frontend && npm install && cd ..
 
-3. **Install Frontend Dependencies:**
-   ```bash
-   cd frontend && npm install && cd ..
-   ```
+# Launch
+chmod +x start.sh && ./start.sh
+```
 
-4. **Launch Backend and Frontend:**
-   ```bash
-   chmod +x start.sh
-   ./start.sh
-   ```
+Open `http://localhost:5173`. Models download automatically on first use.
 
-5. **(Optional) Install EDA Toolchain for Chip Design Pipeline:**
-   ```bash
-   sudo apt-get install -y iverilog yosys ngspice
-   pip install gdstk
-   # Verify installation:
-   python backend/eda_setup.py
-   ```
-
-Open `http://localhost:5173` in your web browser. Model weights will download automatically upon first request or can be pre-downloaded via settings.
-
----
-
-## 📊 Project Statistics & Final Audit
-
-DeepThink AIOS has undergone a comprehensive system audit to verify code quality, structure, and execution safety before submission.
-
-### Core Architectural Features Audited & Verified
-1. **📦 Automated Model Ingestion (`downloader.py`):**
-   * Multi-threaded model downloader with automatic SHA-256 checksum verification.
-   * Pulls directly from Hugging Face repositories with built-in CDN fallback links.
-   * Instantly resolves model directories without manual file placements.
-
-2. **🧠 ChromaDB Semantic RAG Memory (`orchestrator.py`):**
-   * SQLite-backed local vector indexing of past successfully validated code blocks and scientific equations.
-   * Auto-recalls proven calculations to bypass redundant processing and prevent repeat errors.
-
-3. **🔁 Nuclear Reset Loop (`orchestrator.py`):**
-   * Safeguard against infinite logic repair loops. If correction loops fail 3 times, a "Nuclear Reset" is triggered.
-   * DeepSeek-R1-7B extracts concrete "lessons from failure", wipes the active model's memory state, and starts a fresh mathematical draft containing the failure lessons.
+**Optional — EDA Toolchain:**
+```bash
+sudo apt-get install -y iverilog yosys ngspice
+pip install gdstk
+```
 
 ---
 
 ## 👥 Team
+
 **Team Trenches** — Local Multi-Agent AIOS Development Team.

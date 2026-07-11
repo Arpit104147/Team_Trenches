@@ -270,7 +270,7 @@ def load_all_models():
         models_status = check_models_status()
         downloaded = [k for k, v in models_status.items() if v.get("downloaded")]
         
-        benchmark_models = ["router", "deepseek_r1", "vibethinker", "opencode"]
+        benchmark_models = ["router", "deepseek_r1", "vibethinker", "ornith"]
         loaded = []
         
         # Suspend EVM hot-swap during this initialization phase
@@ -327,7 +327,7 @@ async def chat(request: ChatRequest):
     if request.image:
         needed_models += ["qwen_vl"]
         
-    needed_models += ["router", "deepseek_r1", "vibethinker", "opencode"]
+    needed_models += ["router", "deepseek_r1", "vibethinker", "ornith"]
         
     missing_models = [MODEL_DEFINITIONS[m]["name"] for m in needed_models if not models_status.get(m, {}).get("downloaded", False)]
     

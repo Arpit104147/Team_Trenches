@@ -15,7 +15,7 @@ const ThinkingBlock = ({ logs, isActive }) => {
     if (l.includes("qwen") || l.includes("vision") || l.includes("transcri")) return { color: "#26c6da", icon: "👁️" };
     if (l.includes("vibethinker")) return { color: "#7c4dff", icon: "🧠" };
     if (l.includes("deepseek") || l.includes("reasoning") || l.includes("logic plan")) return { color: "#ffa726", icon: "⚡" };
-    if (l.includes("opencode") || l.includes("writing code") || l.includes("sandbox") || l.includes("html artifact")) return { color: "#66bb6a", icon: "💻" };
+    if (l.includes("ornith") || l.includes("writing code") || l.includes("sandbox") || l.includes("html artifact")) return { color: "#66bb6a", icon: "💻" };
     if (l.includes("phi-3.5") || l.includes("router") || l.includes("checking intent") || l.includes("classified as")) return { color: "#42a5f5", icon: "🔀" };
     if (l.includes("web search") || l.includes("scraping") || l.includes("search query")) return { color: "#4fc3f7", icon: "🌐" };
     if (l.includes("verified") || l.includes("complete") || l.includes("done") || l.includes("success")) return { color: "#66bb6a", icon: "✅" };
