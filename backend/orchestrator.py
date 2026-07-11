@@ -438,7 +438,7 @@ class AgentOrchestrator:
         # When True, numeric/math prompts route through PAL (Program-Aided Language)
         # + self-consistency voting (k=3) BEFORE the normal reasoning pipeline.
         # Off by default so interactive chat behaviour is unchanged.
-        self.accuracy_boost = False
+        self.accuracy_boost = True   # PAL + Self-Consistency enabled by default for math/physics
         self.accuracy_boost_k = 3  # samples for self-consistency
 
         self.sandbox = Sandbox(timeout=300)
@@ -842,7 +842,7 @@ class AgentOrchestrator:
                 elif major >= 8:
                     gpu_ctx_cap = 32768   # A100, A6000, RTX 3090/4090
                 else:
-                    gpu_ctx_cap = 8192    # P100, T4, V100
+                    gpu_ctx_cap = 16384   # P100, T4, V100 — raised from 8k to support JEE-grade reasoning chains
             except Exception:
                 pass
         
@@ -1552,6 +1552,17 @@ class AgentOrchestrator:
             "derivative", "integral", "matrix", "vector", "modulo",
             "how old", "how far", "how fast", "how long", "how tall",
             "at what time", "at what rate",
+            # JEE Advanced / competitive exam keywords
+            "find the", "determine", "evaluate", "prove that", "show that",
+            "projectile", "collision", "momentum", "kinetic energy", "potential energy",
+            "angular", "torque", "moment of inertia", "centripetal", "centrifugal",
+            "electric field", "magnetic field", "capacitor", "inductor", "resistor",
+            "wavelength", "frequency", "refraction", "diffraction", "interference",
+            "thermodynamic", "entropy", "enthalpy", "carnot", "adiabatic",
+            "coordinate", "displacement", "acceleration", "velocity",
+            "equilibrium", "tension", "friction", "inclined plane",
+            "radius", "height", "angle", "distance", "time interval",
+            "maximum", "minimum", "ratio", "coefficient",
         )
         if any(k in pl for k in math_kw):
             return True
@@ -1675,6 +1686,12 @@ class AgentOrchestrator:
             "a short Python program. The program computes the exact answer "
             "and prints it on the LAST line in the form:\n"
             "    FINAL_ANSWER: <number>\n"
+            "SYMPY-FIRST RULE: For algebraic, calculus, kinematics, projectile, "
+            "energy conservation, and coordinate geometry problems, you MUST use "
+            "sympy (sympy.symbols, sympy.solve, sympy.integrate, sympy.Rational, "
+            "sympy.sqrt) to derive the EXACT symbolic answer first, then evaluate "
+            "numerically with .evalf(). This avoids floating-point drift that causes "
+            "wrong answers on competitive exam problems.\n"
             "Use math, fractions, or sympy as needed. Do NOT print anything "
             "else after that line. Do NOT include markdown fences other "
             "than one ```python``` block. Do NOT read files or use input()."
@@ -4603,7 +4620,15 @@ class AgentOrchestrator:
             "Always expand v×B explicitly: (v×B)_x = vy*Bz - vz*By, (v×B)_y = vz*Bx - vx*Bz, (v×B)_z = vx*By - vy*Bx.\n"
             "11. DRIFT VELOCITY EXTRACTION: To numerically verify a drift velocity from oscillatory trajectory data, "
             "use np.polyfit(t, x, 1) to extract the linear slope (which filters out cyclotron oscillations). "
-            "Do NOT use endpoint averages like x(T)/T, as boundary oscillations cause >1%% relative error."
+            "Do NOT use endpoint averages like x(T)/T, as boundary oscillations cause >1%% relative error.\n"
+            "12. SYMPY-FIRST MANDATE (JEE Advanced Optimization):\n"
+            "    For ANY problem involving algebraic equations, calculus, coordinate geometry, mechanics, electrostatics, or optics:\n"
+            "    a) You MUST first derive the EXACT symbolic solution using sympy (sympy.solve, sympy.integrate, sympy.diff, sympy.simplify).\n"
+            "    b) State the closed-form symbolic result explicitly before substituting numerical values.\n"
+            "    c) Only after obtaining the symbolic solution, substitute the given numerical constants to get the final answer.\n"
+            "    d) Do NOT jump directly to scipy numerical solvers (solve_ivp, fsolve) for problems that have closed-form analytical solutions.\n"
+            "    e) Use scipy numerical methods ONLY when the symbolic solver explicitly fails (e.g., transcendental equations, chaotic systems).\n"
+            "    f) For projectile motion, collision, energy conservation, and kinematics: these ALWAYS have exact algebraic solutions. Use sympy."
         )
 
         coder_sys = (
@@ -4613,16 +4638,23 @@ class AgentOrchestrator:
             "1. Implement equations EXACTLY as described in the plan. Do NOT simplify or approximate unless instructed.\n"
             "2. Do NOT write placeholders, mock functions, or abbreviated loop bodies. EVERY line must be real.\n"
             "3. Handle edge cases: division by zero (add softening epsilon), array bounds, negative sqrt.\n"
-            "4. SIMULATION TIMEOUT PREVENTION: If using scipy.integrate.solve_ivp for high-frequency oscillatory motion, "
+            "4. SYMPY-FIRST COMPUTATION (JEE Advanced Optimization):\n"
+            "    For physics and math problems with algebraic/calculus solutions:\n"
+            "    a) Import sympy and define symbolic variables: `from sympy import symbols, solve, integrate, diff, sqrt, Rational, pi, cos, sin, tan, atan2, simplify, Eq`\n"
+            "    b) Set up the equations symbolically and solve with sympy.solve() or sympy.integrate().\n"
+            "    c) Print the exact symbolic answer first, THEN substitute numerical values using .subs() and .evalf().\n"
+            "    d) Use scipy.integrate.solve_ivp ONLY for differential equations that sympy.dsolve cannot handle (chaotic, nonlinear coupled ODEs).\n"
+            "    e) For quadratic/cubic equations, trajectory intersections, energy conservation: ALWAYS use sympy.solve().\n"
+            "5. SIMULATION TIMEOUT PREVENTION: If using scipy.integrate.solve_ivp for high-frequency oscillatory motion, "
             "strictly ensure the time span (t_span) is small enough to only cover a reasonable number of cycles (e.g. <1000). "
             "Integrating for too long will cause a timeout error.\n"
-            "5. Print clear, formatted numerical results.\n"
-            "6. For simulations: use numpy arrays, vectorized operations where possible.\n"
-            "7. For plotting: use matplotlib or plotly. Always label axes with units.\n"
-            "8. The script MUST run standalone with `python script.py` — no user input, no GUI blocking.\n"
-            "9. Import ONLY what you use. Do not import unused libraries.\n"
-            "10. Add a brief comment above each major section explaining what it does.\n"
-            "11. PREDICTIVE/FORECASTING TASKS:\n"
+            "6. Print clear, formatted numerical results.\n"
+            "7. For simulations: use numpy arrays, vectorized operations where possible.\n"
+            "8. For plotting: use matplotlib or plotly. Always label axes with units.\n"
+            "9. The script MUST run standalone with `python script.py` — no user input, no GUI blocking.\n"
+            "10. Import ONLY what you use. Do not import unused libraries.\n"
+            "11. Add a brief comment above each major section explaining what it does.\n"
+            "12. PREDICTIVE/FORECASTING TASKS:\n"
             "    - You can import `sklearn` (scikit-learn) and `statsmodels` for time-series forecasting, regression, and data predictions.\n"
             "    - To fetch data, you have access to a global helper class `SandboxDataHelper` in the namespace. Do NOT import it; use it directly:\n"
             "      * `df = SandboxDataHelper.get_stock_data(symbol, period='1y')` -> returns a pandas DataFrame with columns: Date, Open, High, Low, Close, Volume.\n"
@@ -4638,18 +4670,18 @@ class AgentOrchestrator:
             "          'dates': ['2026-06-24', '2026-06-25', '2026-06-26']\n"
             "      }))\n"
             "      print('=== /PREDICTIVE_METRICS ===')\n\n"
-            "12. CYBERSECURITY, CRYPTOGRAPHY & NETWORK TASKS:\n"
+            "13. CYBERSECURITY, CRYPTOGRAPHY & NETWORK TASKS:\n"
             "    - You can import `cryptography` (e.g. Fernet, AES, RSA, padding, hashes), `scapy` (for packet crafting/sniffing simulation), `jwt` (or `pyjwt`), and `hashlib` / `hmac`.\n"
             "    - If you are writing an encryption or token task, you MUST write automated validation in the script to verify that ciphertext can be decrypted back to the original plaintext, and that signatures/tokens verify correctly.\n"
             "    - Always use safe key generation and modern secure cryptographic parameters (e.g. key lengths >= 256 bits for AES, >= 2048 bits for RSA, SHA-256 or better for hashing).\n"
             "    - For network protocol tasks, use scapy to simulate packet creation, validation of header offsets, and printing raw hex/dissections of packets. Do NOT try to connect to external ports or services; simulate them.\n\n"
             "=== CRITICAL CODE QUALITY RULES ===\n"
-            "13. SOLVE_IVP STATE VECTOR ORDERING:\n"
+            "14. SOLVE_IVP STATE VECTOR ORDERING:\n"
             "    When using scipy.integrate.solve_ivp with state = [x, y, z, vx, vy, vz]:\n"
             "    The derivative function MUST return [dx/dt, dy/dt, dz/dt, dvx/dt, dvy/dt, dvz/dt]\n"
             "    i.e., return [vx, vy, vz, ax, ay, az] — positions first, then accelerations.\n"
             "    NEVER return [ax, ay, az, vx, vy, vz] — this swaps state variables and corrupts the simulation.\n\n"
-            "14. LORENTZ FORCE IMPLEMENTATION:\n"
+            "15. LORENTZ FORCE IMPLEMENTATION:\n"
             "    The Lorentz force is: F = q * (E + v × B)\n"
             "    The cross product is between VELOCITY (v) and MAGNETIC FIELD (B), NOT between E and B.\n"
             "    Use np.cross([vx, vy, vz], B) to compute v × B. Example:\n"
@@ -4658,15 +4690,15 @@ class AgentOrchestrator:
             "          v_cross_B = np.cross([vx, vy, vz], [Bx, By, Bz])\n"
             "          ax, ay, az = (q/m) * (E + v_cross_B)\n"
             "          return [vx, vy, vz, ax, ay, az]\n\n"
-            "15. NUMPY FORMATTING BUG PREVENTION:\n"
+            "16. NUMPY FORMATTING BUG PREVENTION:\n"
             "    NEVER use f-string formatting like f'{numpy_array:.3f}' — NumPy arrays do not support scalar format specifiers.\n"
             "    Instead, use: f'{float(scalar_value):.3f}' for scalars, or np.array2string(arr, precision=3) for arrays.\n"
             "    When extracting a single value from sol.y, use sol.y[i, -1] (scalar) not sol.y[i] (full array).\n\n"
-            "16. DRIFT VELOCITY VERIFICATION:\n"
+            "17. DRIFT VELOCITY VERIFICATION:\n"
             "    To verify a drift velocity from oscillatory trajectory data, use linear regression:\n"
             "      slope, _ = np.polyfit(sol.t, sol.y[0], 1)  # slope = drift velocity in x\n"
             "    Do NOT use endpoint division x(T)/T — boundary oscillations cause >1%% error.\n\n"
-            "17. AUTOMATED SELF-TESTING MANDATE:\n"
+            "18. AUTOMATED SELF-TESTING MANDATE:\n"
             "    For ALL programming tasks (including algorithms, graphs, math, data structures, etc.), you MUST append a robust test suite at the bottom of the script.\n"
             "    - Write at least 3-4 distinct test cases (including standard inputs, empty/minimum bounds, and extreme values).\n"
             "    - Use strict `assert` statements: `assert solve_function(inputs) == expected_output, f'Test failed: expected {expected_output}, got {actual}'`.\n"
