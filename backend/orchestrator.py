@@ -457,85 +457,141 @@ class AgentOrchestrator:
             self.dual_gpu_pipeline = True
 
         # ── Dynamic Threshold Calibration ────────────────────────────────
-        # Instead of a hardcoded value, derive safe limits from the actual
-        # hardware detected at startup.
         total_ram = psutil.virtual_memory()
         self.total_ram_gb = total_ram.total / (1024 ** 3)
-        # Reserve 25% of total RAM as a safety buffer for the OS + other apps
-        # 8 GB  → keep 2.0 GB free  (6 GB usable for models)
-        # 16 GB → keep 4.0 GB free  (12 GB usable)
-        # 32 GB → keep 8.0 GB free  (24 GB usable)
-        self.ram_safety_gb = round(self.total_ram_gb * 0.25, 1)
-        # VRAM safety: on NVIDIA dGPUs, reserve 40% of VRAM so the DMA evicts
-        # old models *before* a new 5-7 GB model load crashes with OOM.
-        # On iGPUs (Intel/AMD shared memory), VRAM = RAM so this doesn't apply.
+
+        # ══════════════════════════════════════════════════════════════════
+        # DUAL-MODE MEMORY MANAGEMENT
+        #
+        # Mode 1 — NORMAL MODE (Sequential Single-Model)
+        #   Trigger: RAM ≤ 24GB, OR iGPU, OR dGPU VRAM ≤ 8GB with RAM < 32GB
+        #   Behavior: Only ONE model in memory at a time (like LM Studio).
+        #   Old model is fully destroyed before new model loads.
+        #   The single active model gets maximum possible context window.
+        #
+        # Mode 2 — EVM MODE (Enterprise VRAM Multiplexing)
+        #   Trigger: RAM ≥ 32GB AND dGPU with VRAM ≤ 8GB
+        #   Behavior: All models stay warm in System RAM.
+        #   When needed, a model is swapped RAM → VRAM (single occupant, 95% VRAM).
+        #   When the next model is needed, current is moved VRAM → RAM (not destroyed).
+        #   RAM eviction only when System RAM usage exceeds 95%.
+        #
+        # Exception: Multi-GPU (2+ GPUs) — uses the concurrent dual-GPU pipeline
+        #   layout as before. Neither Normal nor EVM mode applies.
+        # ══════════════════════════════════════════════════════════════════
+        self.memory_mode = "normal"       # "normal" or "evm"
+        self.kaggle_hotswap_mode = False   # Backward-compat alias for EVM mode
         self.vram_safety_gb = 2.0
-        self.kaggle_hotswap_mode = False
-        if torch and torch.cuda.is_available():
+        self.ram_safety_gb = round(self.total_ram_gb * 0.10, 1)  # 10% OS safety for Normal Mode
+
+        has_dgpu = torch and torch.cuda.is_available()
+        single_gpu_vram_gb = 0.0
+
+        if has_dgpu:
             try:
                 num_gpus = torch.cuda.device_count()
                 _free, total_vram = torch.cuda.mem_get_info(0)
                 single_gpu_vram_gb = total_vram / (1024 ** 3)
-                self.vram_safety_gb = round(single_gpu_vram_gb * 0.40, 1)  # 40% reserve
-                
-                # Enable EVM mode if:
-                # 1. Single low-VRAM GPU (<= 16GB) to prevent OOM
-                # 2. Or, single high-VRAM GPU (>= 16GB) when system RAM is >= 32GB (A100/H100 optimization)
-                is_low_vram_single = (single_gpu_vram_gb <= 16)
-                is_high_vram_high_ram_single = (single_gpu_vram_gb >= 16 and self.total_ram_gb >= 32)
-                
-                if is_low_vram_single or is_high_vram_high_ram_single:
-                    self.kaggle_hotswap_mode = True
-                    # EVM guarantees proactive model flushing before every load,
-                    # so we can safely use 95% of VRAM and RAM (only 5% reserve).
-                    self.vram_safety_gb = round(single_gpu_vram_gb * 0.05, 1)
-                    self.ram_safety_gb = round(self.total_ram_gb * 0.05, 1)
-                    print(f"⚡ EVM: Enterprise VRAM Multiplexing ACTIVE (VRAM={single_gpu_vram_gb:.1f}GB, RAM={self.total_ram_gb:.1f}GB)")
-                    print(f"⚡ EVM: 95% utilization enabled — VRAM reserve={self.vram_safety_gb:.1f} GB per GPU, RAM reserve={self.ram_safety_gb:.1f} GB")
-                else:
+
+                if self.dual_gpu_pipeline:
+                    # ── Multi-GPU: concurrent dual-GPU layout (unchanged) ──
+                    # Models pinned to specific GPUs; no single-model swapping.
+                    self.memory_mode = "normal"
                     self.kaggle_hotswap_mode = False
-                    # On larger GPUs (or multi-GPU), lower the reserve threshold.
-                    # Scale by GPU size: 10% for large GPUs (≥40GB like A100/H100)
-                    # where all models fit comfortably, 15% for mid-range (24-39GB).
                     if single_gpu_vram_gb >= 40:
                         self.vram_safety_gb = round(single_gpu_vram_gb * 0.10, 1)
                     else:
                         self.vram_safety_gb = round(single_gpu_vram_gb * 0.15, 1)
-                
-                if num_gpus >= 2:
-                    print(f"🎮 DMA: NVIDIA GPU detected — {num_gpus}x {single_gpu_vram_gb:.0f} GB VRAM ({single_gpu_vram_gb * num_gpus:.0f} GB combined), "
-                          f"evict threshold = {self.vram_safety_gb:.1f} GB free per GPU")
+                    self.ram_safety_gb = round(self.total_ram_gb * 0.25, 1)
+                    print(f"🎮 DMA: Multi-GPU detected — {num_gpus}x {single_gpu_vram_gb:.0f} GB VRAM "
+                          f"({single_gpu_vram_gb * num_gpus:.0f} GB combined)")
+                    print(f"🎮 DMA: Concurrent dual-GPU pipeline active (no hot-swapping)")
+
+                elif self.total_ram_gb >= 32 and single_gpu_vram_gb <= 8:
+                    # ── EVM MODE: High RAM + Low VRAM dGPU ──
+                    # Models stay warm in RAM; hot-swap to VRAM one at a time.
+                    self.memory_mode = "evm"
+                    self.kaggle_hotswap_mode = True
+                    self.vram_safety_gb = round(single_gpu_vram_gb * 0.05, 1)  # 95% VRAM utilization
+                    self.ram_safety_gb = round(self.total_ram_gb * 0.05, 1)    # 95% RAM utilization
+                    print(f"⚡ EVM MODE ACTIVE: RAM={self.total_ram_gb:.0f}GB, dGPU VRAM={single_gpu_vram_gb:.0f}GB")
+                    print(f"⚡ EVM: Models stay warm in RAM. Hot-swap to VRAM as single occupant (95% VRAM)")
+                    print(f"⚡ EVM: VRAM reserve={self.vram_safety_gb:.1f} GB, RAM reserve={self.ram_safety_gb:.1f} GB")
+
                 else:
-                    print(f"🎮 DMA: NVIDIA GPU detected — {single_gpu_vram_gb:.0f} GB VRAM, "
-                          f"evict threshold = {self.vram_safety_gb:.1f} GB free")
+                    # ── NORMAL MODE: Single dGPU ──
+                    # Sequential single-model: destroy old, load new, max context.
+                    self.memory_mode = "normal"
+                    self.kaggle_hotswap_mode = False
+                    self.vram_safety_gb = round(single_gpu_vram_gb * 0.10, 1)  # 10% VRAM safety
+                    self.ram_safety_gb = round(self.total_ram_gb * 0.10, 1)    # 10% RAM safety
+                    print(f"🎮 NORMAL MODE: Single dGPU ({single_gpu_vram_gb:.0f} GB VRAM), RAM={self.total_ram_gb:.0f}GB")
+                    print(f"🎮 NORMAL: Sequential single-model loading (max context per model)")
+                    print(f"🎮 NORMAL: VRAM reserve={self.vram_safety_gb:.1f} GB, RAM reserve={self.ram_safety_gb:.1f} GB")
+
             except Exception:
                 pass
-        # Auto-context ceiling based on available VRAM
-        # P100 (16GB): 4096 ctx  |  A100/H100 (40-80GB): 8192 ctx  |  iGPU/CPU: 8192 (uses RAM)
-        self.max_auto_ctx = 8192
-        if torch and torch.cuda.is_available():
+        else:
+            # ── NORMAL MODE: iGPU / CPU-only ──
+            # No dedicated VRAM. Models use System RAM exclusively.
+            self.memory_mode = "normal"
+            self.kaggle_hotswap_mode = False
+            self.ram_safety_gb = round(self.total_ram_gb * 0.10, 1)  # 10% RAM safety
+            print(f"🧠 NORMAL MODE: iGPU/CPU detected, RAM={self.total_ram_gb:.0f}GB")
+            print(f"🧠 NORMAL: Sequential single-model loading (max context per model)")
+            print(f"🧠 NORMAL: RAM reserve={self.ram_safety_gb:.1f} GB")
+
+        # ── Auto-context ceiling ──────────────────────────────────────────
+        # In Normal Mode: context is calculated from available memory at load time
+        # (since only one model occupies memory). Set a generous base ceiling here.
+        # In EVM Mode: context is calculated from 95% of VRAM.
+        # In Multi-GPU Mode: context scales with combined VRAM.
+        if self.dual_gpu_pipeline and has_dgpu:
+            # Multi-GPU: scale with combined VRAM
             try:
                 num_gpus = torch.cuda.device_count()
-                _free, total_vram = torch.cuda.mem_get_info(0)
-                single_gpu_vram_gb = total_vram / (1024 ** 3)
                 combined_vram_gb = single_gpu_vram_gb * num_gpus
-                
-                # Context capacity scales with combined memory capacity of the GPUs
                 if combined_vram_gb <= 16:
-                    self.max_auto_ctx = 16384  # Increased from 8192 to 16k for 16GB VRAM (like P100)
+                    self.max_auto_ctx = 16384
                 elif combined_vram_gb <= 24:
-                    self.max_auto_ctx = 16384  # Increased from 8192 to 16k for 24GB VRAM
+                    self.max_auto_ctx = 16384
                 elif combined_vram_gb <= 48:
-                    self.max_auto_ctx = 32768  # A6000 (48GB) / A100 (40GB) / Dual T4 (30GB) -> 32k context
+                    self.max_auto_ctx = 32768
                 else:
-                    self.max_auto_ctx = 65536  # H100 (80GB) -> 64k context
-                
-                if num_gpus >= 2:
-                    print(f"📐 DMA: Auto-context ceiling = {self.max_auto_ctx} tokens (based on {combined_vram_gb:.0f} GB combined VRAM)")
-                else:
-                    print(f"📐 DMA: Auto-context ceiling = {self.max_auto_ctx} tokens (based on {single_gpu_vram_gb:.0f} GB VRAM)")
+                    self.max_auto_ctx = 65536
+                print(f"📐 DMA: Auto-context ceiling = {self.max_auto_ctx} tokens "
+                      f"(based on {combined_vram_gb:.0f} GB combined VRAM)")
             except Exception:
-                pass
+                self.max_auto_ctx = 8192
+        elif self.memory_mode == "evm":
+            # EVM: single-model occupancy of VRAM → generous context
+            usable_vram = single_gpu_vram_gb * 0.95
+            # Estimate max context from usable VRAM minus a typical model weight (~7GB)
+            kv_budget_gb = max(0.5, usable_vram - 7.0)
+            self.max_auto_ctx = min(32768, max(4096, int((kv_budget_gb * 1024) / 0.13)))
+            # Round down to nearest 1024
+            self.max_auto_ctx = (self.max_auto_ctx // 1024) * 1024
+            print(f"📐 EVM: Auto-context ceiling = {self.max_auto_ctx} tokens "
+                  f"(based on {single_gpu_vram_gb:.0f} GB VRAM, single-model occupancy)")
+        else:
+            # Normal Mode: context from available RAM (single-model occupancy)
+            if has_dgpu:
+                # dGPU Normal: use VRAM for context calculation
+                usable_vram = single_gpu_vram_gb * 0.90
+                kv_budget_gb = max(0.5, usable_vram - 7.0)
+                self.max_auto_ctx = min(32768, max(4096, int((kv_budget_gb * 1024) / 0.13)))
+                self.max_auto_ctx = (self.max_auto_ctx // 1024) * 1024
+                print(f"📐 NORMAL: Auto-context ceiling = {self.max_auto_ctx} tokens "
+                      f"(based on {single_gpu_vram_gb:.0f} GB dGPU VRAM, single-model)")
+            else:
+                # iGPU/CPU Normal: use System RAM for context
+                usable_ram = self.total_ram_gb * 0.90
+                kv_budget_gb = max(0.5, usable_ram - 7.0)  # ~7GB for model weights
+                self.max_auto_ctx = min(16384, max(4096, int((kv_budget_gb * 1024) / 0.13)))
+                self.max_auto_ctx = (self.max_auto_ctx // 1024) * 1024
+                print(f"📐 NORMAL: Auto-context ceiling = {self.max_auto_ctx} tokens "
+                      f"(based on {self.total_ram_gb:.0f} GB System RAM, single-model)")
+
         self.context_length = self.max_auto_ctx
         print(f"🧠 DMA: Set default context length to {self.context_length} tokens")
         print(f"🧠 DMA: Detected {self.total_ram_gb:.0f} GB RAM → "
@@ -698,165 +754,113 @@ class AgentOrchestrator:
             return None
 
     def _get_dynamic_context_ceiling(self, model_key):
-        """Dynamically computes the safe context ceiling for a specific model based on actual free VRAM and free RAM.
-        Takes into account the EVM hot-swap (unloading other models) and the size of the target model."""
-        # Determine base limit (8k)
+        """Dynamically computes the safe context ceiling for a specific model.
+        
+        Mode-aware calculation:
+        - Normal Mode: Uses TOTAL available memory (only 1 model in memory at a time).
+        - EVM Mode: Uses 95% of VRAM (single-model GPU occupancy after hot-swap).
+        - Multi-GPU: Uses current free VRAM on the target GPU.
+        """
         base_limit = getattr(self, 'max_auto_ctx', 8192)
-        
-        # Check system RAM margins
-        vm = psutil.virtual_memory()
-        total_ram_gb = vm.total / (1024 ** 3)
-        free_ram_gb = vm.available / (1024 ** 3)
-        ram_used_pct = (vm.total - vm.available) / vm.total * 100
-        
-        # Scale context ceiling if there is plenty of system RAM (leaving 5% margin)
-        ram_allowed_ceiling = base_limit
+        memory_mode = getattr(self, 'memory_mode', 'normal')
         est_model_size = self._estimate_model_size_gb(model_key)
-        
-        if ram_used_pct < 95.0:
-            five_percent_ram_gb = total_ram_gb * 0.05
-            surplus_ram = free_ram_gb - est_model_size - five_percent_ram_gb
-            if surplus_ram > 0:
-                ram_allowed_ceiling = int(base_limit + surplus_ram * 4000)
-                ram_allowed_ceiling = min(32768, ram_allowed_ceiling)
-            else:
-                ram_allowed_ceiling = 2048
 
-        # Check GPU VRAM margins
-        vram_allowed_ceiling = ram_allowed_ceiling
-        if not (torch and torch.cuda.is_available()):
-            # Without CUDA, llama.cpp runs on Vulkan, OpenCL, or CPU where Flash Attention is disabled.
-            # We must strictly cap context to 4096 to prevent quadratic memory growth segfaults/OOMs.
-            vram_allowed_ceiling = min(4096, vram_allowed_ceiling)
-        else:
-            try:
-                target_gpu = 1 if getattr(self, 'dual_gpu_pipeline', False) and model_key in ["deepseek_r1", "qwen_vl"] else 0
-                free_vram, total_vram = torch.cuda.mem_get_info(target_gpu)
-                free_vram_gb = free_vram / (1024 ** 3)
-                total_vram_gb = total_vram / (1024 ** 3)
-                vram_used_pct = (total_vram - free_vram) / total_vram * 100
-                
-                est_model_size = self._estimate_model_size_gb(model_key)
-                
-                # If EVM hot-swap is active, we know the orchestrator will ruthlessly flush
-                # all other models before loading this one. So we assume 95% of total VRAM
-                # will be safely available, minus the size of the incoming model.
-                if getattr(self, 'kaggle_hotswap_mode', False):
-                    five_percent_vram_gb = total_vram_gb * 0.05
-                    surplus_vram = (total_vram_gb * 0.95) - est_model_size - five_percent_vram_gb
-                    if surplus_vram > 0:
-                        vram_allowed_ceiling = int(base_limit + surplus_vram * 8000)
-                        vram_allowed_ceiling = min(32768, vram_allowed_ceiling)
-                    else:
-                        vram_allowed_ceiling = 2048 # Strongly constrained
-                elif vram_used_pct < 95.0:
-                    five_percent_vram_gb = total_vram_gb * 0.05
-                    surplus_vram = free_vram_gb - est_model_size - five_percent_vram_gb
-                    if surplus_vram > 0:
-                        vram_allowed_ceiling = int(base_limit + surplus_vram * 8000)
-                        vram_allowed_ceiling = min(32768, vram_allowed_ceiling)
-                    else:
-                        vram_allowed_ceiling = 2048
-                
-                # GPU Architecture check: older GPUs (P100, T4, V100) lack reliable hardware Flash Attention.
-                # Standard attention memory scales quadratically. Cap context to prevent OOM.
+        # ── Step 1: Calculate available memory budget based on mode ────────
+        if memory_mode == "normal" and not self.dual_gpu_pipeline:
+            # NORMAL MODE: Only one model exists in memory.
+            # Calculate context from total available memory (VRAM or RAM).
+            if torch and torch.cuda.is_available():
                 try:
-                    major, minor = torch.cuda.get_device_capability(0)
-                    if major < 8:  # SM 7.5 (T4) or older
-                        # Without Flash Attention, attention memory scales quadratically.
-                        # Cap at 8192 on older GPUs to prevent quadratic VRAM OOM crashes.
-                        vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
+                    _free, total_vram = torch.cuda.mem_get_info(0)
+                    total_vram_gb = total_vram / (1024 ** 3)
+                    # All VRAM is ours (other models already destroyed).
+                    # Use 90% of total VRAM minus model weight size.
+                    usable_kv_gb = (total_vram_gb * 0.90) - est_model_size
                 except Exception:
-                    # If we cannot determine SM architecture (e.g. Intel IPEX or AMD ROCm),
-                    # assume no Flash Attention and strictly cap to 8192 to prevent OOM.
-                    vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
-            except Exception as e:
-                # Fallback to a very safe limit if GPU memory query fails to prevent context expansion crash
-                vram_allowed_ceiling = min(8192, vram_allowed_ceiling)
-                print(f"⚠️ GPU memory query failed: {e}. Falling back to safe context limit of {vram_allowed_ceiling}")
+                    usable_kv_gb = 0.5
+            else:
+                # iGPU/CPU: use System RAM
+                free_ram_gb = self._get_ram_free_gb()
+                # In Normal Mode, other models are already destroyed,
+                # so current free RAM is approximately what we have.
+                # Use 90% of free RAM minus model weight size.
+                usable_kv_gb = (free_ram_gb * 0.90) - est_model_size
 
-        hard_limit = min(ram_allowed_ceiling, vram_allowed_ceiling)
-        # Use 2048 as floor instead of 8192 — the old max(8192) was overriding
-        # the P100's VRAM-safe 4096 cap, causing 'token limit exceeded' OOM crashes.
-        hard_limit = max(2048, hard_limit)
-        
-        # 1. System RAM Constraints (Emergency fallback only to prevent OS crash)
+        elif memory_mode == "evm":
+            # EVM MODE: VRAM is dedicated to single model (95% utilization).
+            if torch and torch.cuda.is_available():
+                try:
+                    _free, total_vram = torch.cuda.mem_get_info(0)
+                    total_vram_gb = total_vram / (1024 ** 3)
+                    usable_kv_gb = (total_vram_gb * 0.95) - est_model_size
+                except Exception:
+                    usable_kv_gb = 0.5
+            else:
+                usable_kv_gb = 0.5
+
+        else:
+            # MULTI-GPU / FALLBACK: Use current free VRAM on target GPU.
+            usable_kv_gb = 0.5
+            if torch and torch.cuda.is_available():
+                try:
+                    target_gpu = 1 if self.dual_gpu_pipeline and model_key in ["deepseek_r1", "qwen_vl"] else 0
+                    free_vram_gb = self._get_vram_free_gb(target_gpu)
+                    if free_vram_gb is not None:
+                        # Account for models that will be freed by EVM/swap
+                        freed_by_swap = 0.0
+                        if getattr(self, 'kaggle_hotswap_mode', False):
+                            for mk, model_obj in self.loaded_models.items():
+                                if mk != model_key and self._is_gpu_resident(model_obj):
+                                    freed_by_swap += self._estimate_model_size_gb(mk)
+                        
+                        if model_key in self.loaded_models:
+                            theo_free = free_vram_gb + freed_by_swap
+                        else:
+                            theo_free = free_vram_gb + freed_by_swap - est_model_size
+                        usable_kv_gb = theo_free - 1.5  # Execution overhead
+                except Exception:
+                    pass
+
+        # Ensure minimum
+        usable_kv_gb = max(0.1, usable_kv_gb)
+
+        # ── Step 2: Convert KV budget (GB) → token count ──────────────────
+        # 1 token ≈ 0.13 MB of KV cache (FP16 8B model)
+        calculated_limit = int((usable_kv_gb * 1024) / 0.13)
+        calculated_limit = (calculated_limit // 1024) * 1024  # Round to nearest 1024
+        calculated_limit = max(2048, min(base_limit, calculated_limit))
+
+        # ── Step 3: Emergency RAM floor ───────────────────────────────────
         free_ram = self._get_ram_free_gb()
         if free_ram < 1.5:
-            ram_limit = 2048
-        else:
-            ram_limit = hard_limit
+            calculated_limit = min(2048, calculated_limit)
 
-        # 2. GPU VRAM Constraints (Theoretical Free VRAM after EVM Swap)
-        vram_limit = hard_limit
-        if torch and torch.cuda.is_available():
-            try:
-                target_gpu = 1 if getattr(self, 'dual_gpu_pipeline', False) and model_key in ["deepseek_r1", "qwen_vl"] else 0
-                free_vram = self._get_vram_free_gb(target_gpu)
-                if free_vram is not None:
-                    # In EVM mode, if other models are loaded, their VRAM will be freed.
-                    # Calculate VRAM that will be freed by unloading other models
-                    freed_by_evm = 0.0
-                    if getattr(self, 'kaggle_hotswap_mode', False):
-                        for mk, model_obj in self.loaded_models.items():
-                            if mk != model_key:
-                                freed_by_evm += self._estimate_model_size_gb(mk)
-                    
-                    target_model_size = self._estimate_model_size_gb(model_key)
-                    # Theoretical free VRAM after swap and load.
-                    # CRITICAL: If the model is already loaded, its footprint is already subtracted
-                    # from the free VRAM. Subtracting it again would double-count the model size
-                    # and artificially throttle context limits to 512 tokens.
-                    if model_key in self.loaded_models:
-                        theo_free_vram = free_vram + freed_by_evm
-                    else:
-                        theo_free_vram = free_vram + freed_by_evm - target_model_size
-                    
-                    # Deduct overhead for model execution (computational graph, activations)
-                    usable_kv_vram = theo_free_vram - 1.5
-                    if usable_kv_vram < 0:
-                        usable_kv_vram = 0.5
-                    
-                    # 1 token ≈ 0.13 MB of KV cache (FP16 8B model)
-                    calculated_limit = int((usable_kv_vram * 1024) / 0.13)
-                    # Round down to nearest multiple of 1024
-                    calculated_limit = (calculated_limit // 1024) * 1024
-                    vram_limit = max(1024, min(hard_limit, calculated_limit))
-            except Exception:
-                pass
-                
-        # Sane bottleneck of RAM, VRAM, and hard limit
-        dynamic_cap = min(hard_limit, ram_limit, vram_limit)
-        
-        # Model-specific physical context ceilings — scale with GPU compute capability.
-        # SM >= 9.0 (H100/B200): Flash Attention v2 + HBM3 → safe up to 65k
-        # SM >= 8.0 (A100/A6000/RTX 3090): Flash Attention v1 + HBM2e → safe up to 32k
-        # SM <  8.0 (P100/T4/V100): No flash attention, quadratic memory → cap at 8k
-        # iGPU/CPU: Uses system RAM for KV cache → bounded by RAM, safe up to 16k
-        gpu_ctx_cap = 16384  # Default for iGPU/CPU
+        # ── Step 4: Flash Attention hardware cap ──────────────────────────
+        # Prevents quadratic memory scaling on older GPUs without Flash Attention.
+        gpu_ctx_cap = 16384  # Default for iGPU/CPU (no FA, but linear via llama.cpp)
         if torch and torch.cuda.is_available():
             try:
                 major, _ = torch.cuda.get_device_capability(0)
                 if major >= 9:
-                    gpu_ctx_cap = 65536   # H100, B200
+                    gpu_ctx_cap = 65536   # H100, B200: FA v2 + HBM3
                 elif major >= 8:
-                    gpu_ctx_cap = 32768   # A100, A6000, RTX 3090/4090
+                    gpu_ctx_cap = 32768   # A100, RTX 3090/4090: FA v1
                 else:
-                    gpu_ctx_cap = 16384   # P100, T4, V100 — raised from 8k to support JEE-grade reasoning chains
+                    gpu_ctx_cap = 16384   # P100, T4, V100: no FA but still usable up to 16k
             except Exception:
                 pass
-        
-        # Per-model ceiling (all models use the same GPU-derived ceiling,
-        # but individual models can be overridden here if needed)
+
+        # ── Step 5: Per-model ceiling ─────────────────────────────────────
         model_ceilings = {
-            "router": min(gpu_ctx_cap, 8192),         # Router only needs up to 8k context
-            "vibethinker": min(gpu_ctx_cap, 16384),   # VibeThinker only needs up to 16k context
-            "ornith": min(gpu_ctx_cap, 16384),      # Ornith capped at 16k
-            "deepseek_r1": gpu_ctx_cap                # DeepSeek-R1 uses full capacity (up to 32k)
+            "router": min(gpu_ctx_cap, 8192),         # Router only needs up to 8k
+            "vibethinker": min(gpu_ctx_cap, 16384),   # VibeThinker up to 16k
+            "ornith": min(gpu_ctx_cap, 16384),        # Ornith capped at 16k
+            "deepseek_r1": gpu_ctx_cap                # DeepSeek-R1 uses full capacity
         }
         model_cap = model_ceilings.get(model_key, gpu_ctx_cap)
-        dynamic_cap = min(dynamic_cap, model_cap)
-        
+
+        # Final result: min of memory-calculated, FA hardware cap, and model ceiling
+        dynamic_cap = min(calculated_limit, gpu_ctx_cap, model_cap)
         dynamic_cap = max(1024, dynamic_cap)
         return dynamic_cap
 
@@ -889,18 +893,22 @@ class AgentOrchestrator:
 
     def _evict_lru_model(self, offload_to_cpu=False):
         """Evict the single least-recently-used model.
-        In non-EVM mode, if offload_to_cpu is True and system RAM is sufficient,
-        we offload the model to CPU (System RAM) instead of fully closing it.
+        
+        Mode-aware behavior:
+        - Normal Mode: Always fully destroy (no CPU offloading — only 1 model at a time).
+        - EVM Mode: Offload to CPU RAM if RAM is available; destroy only if RAM > 95%.
+        - Multi-GPU / explicit offload_to_cpu: Offload to CPU if safe.
         Returns True if a model was evicted or offloaded.
         """
         if not self.model_access_order:
             return False
 
+        memory_mode = getattr(self, 'memory_mode', 'normal')
+
         lru_key = None
         if offload_to_cpu:
             for candidate in list(self.model_access_order):
                 candidate_obj = self.loaded_models.get(candidate)
-                # FIX Bug 1: use != 0 semantics (handles n_gpu_layers = -1)
                 if candidate_obj is not None and self._is_gpu_resident(candidate_obj):
                     lru_key = candidate
                     break
@@ -914,20 +922,32 @@ class AgentOrchestrator:
         if model_obj is None:
             return False
 
-        on_gpu = self._is_gpu_resident(model_obj)          # FIX Bug 1
+        on_gpu = self._is_gpu_resident(model_obj)
         est_size = self._estimate_model_size_gb(lru_key)
         free_ram = self._get_ram_free_gb()
 
-        should_offload = (
-            offload_to_cpu and
-            not getattr(self, 'kaggle_hotswap_mode', False) and
-            on_gpu and                                      # FIX Bug 1 (was: current_gpu_layers > 0)
-            (free_ram - est_size) > self.ram_safety_gb and
-            # Don't offload to CPU if total VRAM can comfortably fit ALL loaded
-            # models. Prevents unnecessary CPU offload cascade on large GPUs
-            # (A100/H100) where all models fit simultaneously in VRAM.
-            not self._gpu_can_fit_all_models()
-        )
+        # ── Decide: Offload to CPU RAM or Fully Destroy? ──────────────────
+        if memory_mode == "normal" and not self.dual_gpu_pipeline:
+            # Normal Mode: always fully destroy. No point keeping in RAM
+            # since only one model should exist at a time.
+            should_offload = False
+        elif memory_mode == "evm":
+            # EVM Mode: offload to CPU RAM if there's enough RAM headroom.
+            # Destroy only if RAM is critically full.
+            ram_used_pct = ((self.total_ram_gb - free_ram) / self.total_ram_gb) * 100
+            should_offload = (
+                on_gpu and
+                ram_used_pct < 95.0 and
+                (free_ram - est_size) > self.ram_safety_gb
+            )
+        else:
+            # Multi-GPU / fallback: use the explicit offload_to_cpu parameter
+            should_offload = (
+                offload_to_cpu and
+                on_gpu and
+                (free_ram - est_size) > self.ram_safety_gb and
+                not self._gpu_can_fit_all_models()
+            )
 
         if should_offload:
             print(f"🧹 DMA-LRU: Offloading '{lru_key}' from VRAM to System RAM (CPU)...")
@@ -1157,23 +1177,21 @@ class AgentOrchestrator:
         est_model_gb = self._estimate_model_size_gb(model_key)
         print(f"📦 DMA: Preparing to load '{model_key}' (~{est_model_gb:.1f} GB)")
         
-        # ── EVM Hot-Swap Guard ────────────────────────────────────────────
-        # On constrained GPUs, completely evict ALL other GPU-resident models
-        # so the incoming model gets 100% of the VRAM for its KV Cache.
-        # We do NOT re-instantiate evicted models on CPU — this caused race conditions
-        # where the CPU re-load consumed RAM while GPU memory hadn't fully freed yet.
-        # Instead, the next _get_model() call will reload from disk (which is fast
-        # because the file is already in the OS page cache from the initial load_all).
-        evm_flushed = False
-        if getattr(self, 'kaggle_hotswap_mode', False) and not force_cpu and self.loaded_models:
-            models_to_evict = [
-                mk for mk, m in list(self.loaded_models.items())
-                if mk != model_key and self._is_gpu_resident(m)
+        # ── Mode-Aware Pre-Load Memory Management ─────────────────────────
+        mode_cleared = False
+
+        if getattr(self, 'memory_mode', 'normal') == "normal" and not self.dual_gpu_pipeline and not force_cpu:
+            # ── NORMAL MODE: Destroy ALL other models before loading ──────
+            # This guarantees the incoming model gets 100% of available
+            # memory (VRAM or RAM), maximizing the context window — like LM Studio.
+            models_to_destroy = [
+                mk for mk in list(self.loaded_models.keys())
+                if mk != model_key
             ]
-            if models_to_evict:
+            if models_to_destroy:
                 with self.inference_lock:
-                    for mk in models_to_evict:
-                        print(f"🔄 DMA (EVM): Evicting '{mk}' from VRAM...")
+                    for mk in models_to_destroy:
+                        print(f"🗑️ NORMAL: Destroying '{mk}' to free memory for '{model_key}'...")
                         model_obj = self.loaded_models.pop(mk, None)
                         if mk in self.model_access_order:
                             self.model_access_order.remove(mk)
@@ -1181,17 +1199,58 @@ class AgentOrchestrator:
                         del model_obj
                 gc.collect()
                 self._wait_for_gpu_deallocation()
-                evm_flushed = True
-            else:
-                evm_flushed = True  # Only our model is loaded, all VRAM is ours
-                
-        # Skip memory pressure check if EVM already cleared VRAM.
-        # Also skip if we are inside an offload-reload cycle (_in_offload_reload)
-        # to prevent infinite recursion: offload → CPU reload → pressure check → offload.
-        # Also skip if the target model is ALREADY loaded — running pressure check
-        # in that case can trigger a cascade where the model we're about to return
-        # gets evicted/offloaded to CPU by its own load call.
-        if not evm_flushed and not force_cpu and not self._in_offload_reload and model_key not in self.loaded_models:
+            mode_cleared = True
+
+        elif getattr(self, 'memory_mode', 'normal') == "evm" and not force_cpu:
+            # ── EVM MODE: Offload GPU-resident models to CPU RAM ──────────
+            # Models stay alive in System RAM for fast re-swap.
+            # Only the active model occupies VRAM (95% utilization).
+            models_on_gpu = [
+                mk for mk, m in list(self.loaded_models.items())
+                if mk != model_key and self._is_gpu_resident(m)
+            ]
+            if models_on_gpu:
+                for mk in models_on_gpu:
+                    print(f"🔄 EVM: Offloading '{mk}' from VRAM → RAM...")
+                    # Close the GPU version and reload on CPU
+                    model_obj = self.loaded_models.pop(mk, None)
+                    if mk in self.model_access_order:
+                        self.model_access_order.remove(mk)
+                    ctx_size = model_obj.n_ctx() if hasattr(model_obj, "n_ctx") else 2048
+                    with self.inference_lock:
+                        self._close_model(model_obj, mk)
+                        del model_obj
+                    gc.collect()
+                    self._wait_for_gpu_deallocation()
+                    # Reload on CPU (stays warm in System RAM)
+                    try:
+                        self._in_offload_reload = True
+                        self._load_model_synchronized(mk, required_ctx=ctx_size, force_cpu=True)
+                        print(f"  ✅ EVM: '{mk}' now warm in System RAM ({self._get_ram_free_gb():.1f} GB free)")
+                    except Exception as e:
+                        print(f"  ⚠️ EVM: Failed to offload '{mk}' to RAM: {e}")
+                    finally:
+                        self._in_offload_reload = False
+
+            # ── EVM RAM Pressure Check ────────────────────────────────────
+            # If System RAM is critically full (>95% used), permanently
+            # evict the least-recently-used model from RAM to disk.
+            free_ram = self._get_ram_free_gb()
+            ram_used_pct = ((self.total_ram_gb - free_ram) / self.total_ram_gb) * 100
+            while ram_used_pct > 95.0 and self.model_access_order:
+                lru_key = self.model_access_order[0]
+                if lru_key == model_key:
+                    break  # Don't evict the model we're about to load
+                print(f"🗑️ EVM (RAM Pressure): Destroying '{lru_key}' from RAM (usage={ram_used_pct:.0f}%)...")
+                self._evict_lru_model()
+                free_ram = self._get_ram_free_gb()
+                ram_used_pct = ((self.total_ram_gb - free_ram) / self.total_ram_gb) * 100
+            mode_cleared = True
+
+        # ── Fallback Memory Pressure Check (Multi-GPU and edge cases) ─────
+        # Skip if mode-aware logic already cleared memory, or if we're inside
+        # an offload-reload cycle, or if the model is already loaded.
+        if not mode_cleared and not force_cpu and not self._in_offload_reload and model_key not in self.loaded_models:
             target_gpu = 0
             if self.dual_gpu_pipeline:
                 if model_key in ["deepseek_r1", "qwen_vl"]:
@@ -1199,14 +1258,6 @@ class AgentOrchestrator:
                 else:
                     target_gpu = 0
             self._check_memory_pressure(required_vram_gb=est_model_gb, target_gpu_idx=target_gpu)
-
-        # ── iGPU Unified Memory Guard ─────────────────────────────────────
-        is_igpu = not (torch and torch.cuda.is_available())
-        if is_igpu and self.loaded_models:
-            free_ram = self._get_ram_free_gb()
-            if free_ram < self.total_ram_gb * 0.35:
-                print(f"🧠 DMA (iGPU Guard): Pre-emptive eviction — only {free_ram:.1f} GB free")
-                self._evict_lru_model()
 
         if not is_model_downloaded(model_key):
             raise Exception(f"Model '{model_key}' is not downloaded. "
