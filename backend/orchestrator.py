@@ -456,6 +456,40 @@ class AgentOrchestrator:
         if torch and torch.cuda.is_available() and torch.cuda.device_count() >= 2:
             self.dual_gpu_pipeline = True
 
+        # ── Startup CUDA Diagnostic for llama-cpp-python ──────────────────
+        # MUST run BEFORE mode detection: if llama-cpp-python was compiled
+        # without CUDA, the GPU exists but can't be used for inference.
+        # We must downgrade has_dgpu so context ceilings are calculated
+        # from System RAM (not VRAM), preventing OOM segfaults.
+        self.llama_cpp_has_cuda = True  # Assume yes until proven otherwise
+        try:
+            from llama_cpp import Llama
+            import llama_cpp as _lc
+            _has_cuda_backend = (
+                hasattr(_lc, 'LLAMA_SUPPORTS_GPU_OFFLOAD') or
+                hasattr(getattr(_lc, 'llama_cpp', None), 'ggml_backend_cuda_init') or
+                hasattr(getattr(_lc, 'llama_cpp', None), 'ggml_cuda_init')
+            )
+            if torch and torch.cuda.is_available():
+                if _has_cuda_backend:
+                    self.llama_cpp_has_cuda = True
+                    print(f"✅ llama-cpp-python: CUDA backend detected (GPU inference ready)")
+                else:
+                    self.llama_cpp_has_cuda = False
+                    print(f"")
+                    print(f"{'='*70}")
+                    print(f"⚠️  WARNING: llama-cpp-python has NO CUDA backend!")
+                    print(f"   GPU is available ({torch.cuda.get_device_name(0)})")
+                    print(f"   but llama-cpp-python was built without CUDA support.")
+                    print(f"   ALL models will fall back to CPU inference.")
+                    print(f"")
+                    print(f"   FIX: Reinstall with CUDA support:")
+                    print(f"   CMAKE_ARGS=\"-DGGML_CUDA=on\" pip install llama-cpp-python --force-reinstall --no-cache-dir")
+                    print(f"{'='*70}")
+        except ImportError:
+            self.llama_cpp_has_cuda = False
+            print(f"⚠️ llama-cpp-python is not installed. GGUF models will not load.")
+
         # ── Dynamic Threshold Calibration ────────────────────────────────
         total_ram = psutil.virtual_memory()
         self.total_ram_gb = total_ram.total / (1024 ** 3)
@@ -484,7 +518,9 @@ class AgentOrchestrator:
         self.vram_safety_gb = 2.0
         self.ram_safety_gb = round(self.total_ram_gb * 0.10, 1)  # 10% OS safety for Normal Mode
 
-        has_dgpu = torch and torch.cuda.is_available()
+        # If llama-cpp-python can't use CUDA, the GPU is invisible to the
+        # inference engine. Treat the system as iGPU/CPU-only for memory planning.
+        has_dgpu = torch and torch.cuda.is_available() and self.llama_cpp_has_cuda
         single_gpu_vram_gb = 0.0
 
         if has_dgpu:
@@ -598,34 +634,7 @@ class AgentOrchestrator:
               f"Safety threshold = {self.ram_safety_gb:.1f} GB "
               f"(evict when free < {self.ram_safety_gb:.1f} GB)")
 
-        # ── Startup CUDA Diagnostic for llama-cpp-python ──────────────────
-        # This catches the #1 cause of "everything loads on CPU": llama-cpp-python
-        # installed without CUDA support. Print a clear warning at startup.
-        try:
-            from llama_cpp import Llama
-            # Try to detect if CUDA backend is available in llama_cpp
-            import llama_cpp as _lc
-            _has_cuda_backend = (
-                hasattr(_lc, 'LLAMA_SUPPORTS_GPU_OFFLOAD') or
-                hasattr(getattr(_lc, 'llama_cpp', None), 'ggml_backend_cuda_init') or
-                hasattr(getattr(_lc, 'llama_cpp', None), 'ggml_cuda_init')
-            )
-            if torch and torch.cuda.is_available():
-                if _has_cuda_backend:
-                    print(f"✅ llama-cpp-python: CUDA backend detected (GPU inference ready)")
-                else:
-                    print(f"")
-                    print(f"{'='*70}")
-                    print(f"⚠️  WARNING: llama-cpp-python has NO CUDA backend!")
-                    print(f"   GPU is available ({torch.cuda.get_device_name(0)})")
-                    print(f"   but llama-cpp-python was built without CUDA support.")
-                    print(f"   ALL models will fall back to CPU inference.")
-                    print(f"")
-                    print(f"   FIX: Reinstall with CUDA support:")
-                    print(f"   CMAKE_ARGS=\"-DGGML_CUDA=on\" pip install llama-cpp-python --force-reinstall --no-cache-dir")
-                    print(f"{'='*70}")
-        except ImportError:
-            print(f"⚠️ llama-cpp-python is not installed. GGUF models will not load.")
+        # (CUDA diagnostic already ran above, before mode detection)
 
     def _is_gpu_resident(self, model_obj):
         """True if any layers are on GPU. n_gpu_layers: -1 = ALL layers on GPU,
@@ -769,7 +778,8 @@ class AgentOrchestrator:
         if memory_mode == "normal" and not self.dual_gpu_pipeline:
             # NORMAL MODE: Only one model exists in memory.
             # Calculate context from total available memory (VRAM or RAM).
-            if torch and torch.cuda.is_available():
+            has_usable_gpu = torch and torch.cuda.is_available() and getattr(self, 'llama_cpp_has_cuda', True)
+            if has_usable_gpu:
                 try:
                     _free, total_vram = torch.cuda.mem_get_info(0)
                     total_vram_gb = total_vram / (1024 ** 3)
@@ -788,7 +798,8 @@ class AgentOrchestrator:
 
         elif memory_mode == "evm":
             # EVM MODE: VRAM is dedicated to single model (95% utilization).
-            if torch and torch.cuda.is_available():
+            has_usable_gpu = torch and torch.cuda.is_available() and getattr(self, 'llama_cpp_has_cuda', True)
+            if has_usable_gpu:
                 try:
                     _free, total_vram = torch.cuda.mem_get_info(0)
                     total_vram_gb = total_vram / (1024 ** 3)
@@ -838,7 +849,8 @@ class AgentOrchestrator:
         # ── Step 4: Flash Attention hardware cap ──────────────────────────
         # Prevents quadratic memory scaling on older GPUs without Flash Attention.
         gpu_ctx_cap = 16384  # Default for iGPU/CPU (no FA, but linear via llama.cpp)
-        if torch and torch.cuda.is_available():
+        has_usable_gpu = torch and torch.cuda.is_available() and getattr(self, 'llama_cpp_has_cuda', True)
+        if has_usable_gpu:
             try:
                 major, _ = torch.cuda.get_device_capability(0)
                 if major >= 9:
