@@ -22,7 +22,7 @@ Before running the benchmarks, ensure:
    ```
 3. The benchmark models are downloaded:
    ```bash
-   python backend/downloader.py router deepseek_r1 vibethinker opencode
+   python backend/downloader.py router deepseek_r1 vibethinker ornith
    ```
 4. The backend is running (serves the API and dashboard on port `8000`):
    ```bash

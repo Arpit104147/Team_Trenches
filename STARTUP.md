@@ -121,13 +121,13 @@ source venv/bin/activate       # Linux / Mac
 python backend/downloader.py
 
 # Download all models at once
-python backend/downloader.py router deepseek_r1 vibethinker opencode qwen_vl
+python backend/downloader.py router deepseek_r1 vibethinker ornith qwen_vl
 
 # Or download individually
 python backend/downloader.py router          # Phi-3.5 Mini Router     (~3 GB)
 python backend/downloader.py deepseek_r1    # DeepSeek-R1 7B           (~6 GB)
 python backend/downloader.py vibethinker    # VibeThinker 3B           (~2.5 GB)
-python backend/downloader.py opencode       # OpenCodeInterpreter 6.7B (~5 GB)
+python backend/downloader.py ornith         # Ornith 1.0-9B (Coder)    (~7.5 GB)
 python backend/downloader.py qwen_vl        # Qwen2.5-VL 7B Vision     (~7 GB)
 ```
 
@@ -225,7 +225,7 @@ Once both servers are up and you submit a prompt, the pipeline streams live in t
 2. **SAST Security Scanner** checks generated code for command injection, reverse shells, and exfiltration patterns before execution.
 3. **DeepSeek-R1** or **VibeThinker** drafts the step-by-step logic, math derivation, or analytical comparison.
 4. **Execution/Node.js Sandbox** performs logic, coordinate, or API checks on the draft (inside kernel-isolated namespaces when available).
-5. **OpenCodeInterpreter** generates target code, data frames, or HTML visualization elements.
+5. **Ornith 1.0-9B** generates target code, data frames, or HTML visualization elements.
 6. **Polyglot Sandbox** compiles and executes scripts in isolated environments with `unshare` network/PID isolation.
 7. **Self-Correction/Linter loops** fix runtime syntax errors on the fly.
 8. Final answer streams to the UI with code, output, and visual elements.
